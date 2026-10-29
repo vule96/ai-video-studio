@@ -10,10 +10,10 @@ use tokio_util::sync::CancellationToken;
 use ts_rs::TS;
 
 use crate::error::{AppError, AppResult};
-use crate::model::{Character, Format, Take, TakeTarget, Video, now_ms, selected};
+use crate::model::{Animation, Character, Format, MotionClip, Take, TakeTarget, Video, now_ms, selected};
 use crate::pipeline::prompts::{CHARACTER_SIZE, character_prompt, shot_prompt};
-use crate::pipeline::render::{self, Clip, Finish};
-use crate::pipeline::workflow::{ImageRequest, image_graph};
+use crate::pipeline::render::{self, Clip, Finish, Picture};
+use crate::pipeline::workflow::{CLIP_FRAMES, ClipRequest, ImageRequest, clip_graph, image_graph};
 use crate::pipeline::{review, storyboard};
 use crate::services::comfy::Comfy;
 use crate::services::ollama::{Ollama, Prompt};
@@ -62,6 +62,13 @@ pub enum JobSpec {
         shot_ids: Vec<String>,
         attempts: u32,
     },
+    /// Image-to-video clips from the selected frames of shots set to AI motion. `again`: also redo clips that still
+    /// match their shot (another seed), otherwise those are skipped.
+    Clips {
+        project_id: String,
+        shot_ids: Vec<String>,
+        again: bool,
+    },
 }
 
 impl JobSpec {
@@ -72,7 +79,8 @@ impl JobSpec {
             | Self::ShotTakes { project_id, .. }
             | Self::Render { project_id, .. }
             | Self::Review { project_id, .. }
-            | Self::Fix { project_id, .. } => project_id,
+            | Self::Fix { project_id, .. }
+            | Self::Clips { project_id, .. } => project_id,
         }
     }
 
@@ -84,6 +92,7 @@ impl JobSpec {
             Self::Render { voice, .. } => format!("Dựng phim, giọng {voice}"),
             Self::Review { shot_ids, .. } => format!("Soát {} khung hình", shot_ids.len()),
             Self::Fix { shot_ids, .. } => format!("Tự sửa {}", shot_ids.join(", ")),
+            Self::Clips { shot_ids, .. } => format!("Clip chuyển động {}", shot_ids.join(", ")),
         }
     }
 }
@@ -244,6 +253,7 @@ impl Jobs {
             }
             JobSpec::Review { project_id, shot_ids, again } => run_review(ctx, project_id, shot_ids, *again, cancel, progress).await,
             JobSpec::Fix { project_id, shot_ids, attempts } => run_fix(ctx, project_id, shot_ids, *attempts, cancel, progress).await,
+            JobSpec::Clips { project_id, shot_ids, again } => run_clips(ctx, project_id, shot_ids, *again, cancel, progress).await,
         }
     }
 
@@ -509,19 +519,17 @@ async fn run_render(
     for ((i, shot), (audio, secs)) in (0u32..).zip(&project.shots).zip(&narration) {
         progress(n + i, total, &format!("Dựng {}", shot.id));
         let image = selected(&shot.takes, shot.selected_take.as_ref()).map(|t| t.file.as_str()).unwrap_or_default();
+        // A shot set to AI motion without a matching clip falls back to zoom/pan; the Render screen warns about it.
+        let picture = match shot.fresh_clip() {
+            Some(c) => Picture::Video { file: &c.file, frames: CLIP_FRAMES },
+            None => Picture::Still { image, motion: render::motion(&shot.motion) },
+        };
         let name = format!("{i:03}.mp4");
         let out = format!("{TMP}/{name}");
-        let clip = Clip {
-            image,
-            audio: audio.as_deref(),
-            audio_secs: *secs,
-            motion: render::motion(&shot.motion),
-            size: project.format.video_size(),
-            out: &out,
-        };
+        let clip = Clip { picture, audio: audio.as_deref(), audio_secs: *secs, size: project.format.video_size(), out: &out };
         ffmpeg::run(&settings.ffmpeg, &dir, &render::clip_args(&clip), cancel).await?;
         cues.extend(render::cues(start + render::LEAD, *secs, &shot.narration));
-        start += render::frames_secs(render::clip_frames(*secs));
+        start += render::frames_secs(clip.frames());
         clips.push(name);
     }
 
@@ -561,6 +569,66 @@ async fn run_render(
     }
     let _ = tokio::fs::remove_dir_all(dir.join(TMP)).await;
     ctx.sink.project_changed(project_id);
+    progress(total, total, "Xong");
+    Ok(())
+}
+
+/// Makes an image-to-video clip for each listed shot that is set to AI motion and has a frame, then stores it on the
+/// shot. Shots whose clip already matches are skipped unless `again`, so re-running after editing one shot only costs
+/// that shot.
+async fn run_clips(
+    ctx: &Context,
+    project_id: &str,
+    shot_ids: &[String],
+    again: bool,
+    cancel: &CancellationToken,
+    progress: Progress<'_>,
+) -> AppResult<()> {
+    let settings = ctx.settings();
+    let project = ctx.store.get(project_id).await?;
+    let dir = ctx.store.dir(project_id)?;
+    let shots: Vec<_> = project
+        .shots
+        .iter()
+        .filter(|s| shot_ids.contains(&s.id) && s.animation != Animation::Camera && (again || s.fresh_clip().is_none()))
+        .filter_map(|s| selected(&s.takes, s.selected_take.as_ref()).map(|t| (s, t)))
+        .collect();
+    if shots.is_empty() {
+        return Ok(());
+    }
+    let total = u32::try_from(shots.len()).unwrap_or(u32::MAX);
+    let comfy = Comfy::connect(ctx.http.clone(), &settings.comfy_url).await?;
+    // Wan wants the GPU to itself; a model Ollama still keeps loaded would push it into RAM.
+    let llm = Ollama::new(ctx.http.clone(), &settings.ollama_url);
+    llm.unload(&settings.ollama_model).await;
+    llm.unload(settings.vision_model()).await;
+    let (width, height) = match project.format {
+        Format::Landscape => (1280, 720),
+        Format::Portrait => (720, 1280),
+    };
+    for (step, (shot, take)) in (0..).zip(&shots) {
+        let hd = shot.animation == Animation::AiHd;
+        progress(step, total, &format!("Clip {} ({})", shot.id, if hd { "720p, lâu" } else { "480p → 720p" }));
+        let image = comfy.upload_image(&dir.join(&take.file), &format!("aivs_{project_id}_{}.png", take.id)).await?;
+        let prompt = render::clip_prompt(&shot.action, &shot.motion, &project.style);
+        let seed = random_seed();
+        let req = ClipRequest { prompt: &prompt, image: &image, width, height, hd, seed, filename_prefix: "aivs/clip" };
+        let bytes = comfy.run(&clip_graph(&req), cancel).await?;
+        let clip = MotionClip {
+            file: format!("clips/{}-{seed}.mp4", shot.id),
+            take: take.id.clone(),
+            action: shot.action.clone(),
+            hd,
+            created_at: now_ms(),
+        };
+        ctx.store.write_file(project_id, &clip.file, &bytes).await?;
+        let (_, old) = ctx.store.update(project_id, |p| Ok(p.shot_mut(&shot.id).and_then(|s| s.clip.replace(clip)))).await?;
+        // Best effort: an old clip left behind wastes disk, nothing more.
+        if let Some(old) = old {
+            let _ = tokio::fs::remove_file(dir.join(old.file)).await;
+        }
+        ctx.sink.project_changed(project_id);
+    }
     progress(total, total, "Xong");
     Ok(())
 }

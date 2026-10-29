@@ -5,23 +5,25 @@ App desktop cho Windows và macOS: từ **một câu mô tả** hoặc **một f
 ```
 Mô tả / PDF ─► 1 Kịch bản ─► 2 Nhân vật ─► 3 Khung hình ─► 4 Dựng phim
                Ollama          ComfyUI        ComfyUI          VieNeu-TTS + ffmpeg
-               nhân vật,       3 phương án,   mỗi shot vẽ theo lời dẫn, zoom/pan,
-               shot, lời dẫn   khoanh 1 ảnh   ảnh tham chiếu   ghép MP4 + phụ đề .srt
+               nhân vật,       3 phương án,   mỗi shot vẽ theo lời dẫn, zoom/pan
+               shot, lời dẫn   khoanh 1 ảnh   ảnh tham chiếu,  hoặc clip AI,
+                                              clip AI (Wan)    ghép MP4 + phụ đề .srt
 ```
 
 ## Cần cài
 
-| Thứ                                    | Ghi chú                                                                           |
-| -------------------------------------- | --------------------------------------------------------------------------------- |
-| Node.js 22.11+                         |                                                                                   |
-| Rust (qua [rustup](https://rustup.rs)) | Mặc định là đủ                                                                    |
-| **Windows**: Microsoft C++ Build Tools | Chọn "Desktop development with C++". WebView2 có sẵn trên Windows 11              |
-| **macOS**: Xcode Command Line Tools    | `xcode-select --install`                                                          |
-| [Ollama](https://ollama.com)           | Rồi `ollama pull qwen3:8b`                                                        |
-| ComfyUI                                | Windows: bản Portable NVIDIA (GitHub ComfyUI → Releases). macOS: ComfyUI Desktop  |
-| Model vẽ hình (~12.5 GB)               | `scripts/download-models.ps1` (Windows) hoặc `scripts/download-models.sh` (macOS) |
-| ffmpeg                                 | Windows: `winget install Gyan.FFmpeg`. macOS: `brew install ffmpeg`               |
-| Python 3.10+                           | Cho VieNeu-TTS; `scripts/start-tts.ps1` tự tạo môi trường và cài lần đầu          |
+| Thứ                                     | Ghi chú                                                                            |
+| --------------------------------------- | ---------------------------------------------------------------------------------- |
+| Node.js 22.11+                          |                                                                                    |
+| Rust (qua [rustup](https://rustup.rs))  | Mặc định là đủ                                                                     |
+| **Windows**: Microsoft C++ Build Tools  | Chọn "Desktop development with C++". WebView2 có sẵn trên Windows 11               |
+| **macOS**: Xcode Command Line Tools     | `xcode-select --install`                                                           |
+| [Ollama](https://ollama.com)            | Rồi `ollama pull qwen3:8b`                                                         |
+| ComfyUI                                 | Windows: bản Portable NVIDIA (GitHub ComfyUI → Releases). macOS: ComfyUI Desktop   |
+| Model vẽ hình (~12.5 GB)                | `scripts/download-models.ps1` (Windows) hoặc `scripts/download-models.sh` (macOS)  |
+| Model chuyển động AI (~38 GB, tuỳ chọn) | Cùng script, thêm `-Video` (macOS: `--video`). Cần card 16 GB và RAM 32 GB trở lên |
+| ffmpeg                                  | Windows: `winget install Gyan.FFmpeg`. macOS: `brew install ffmpeg`                |
+| Python 3.10+                            | Cho VieNeu-TTS; `scripts/start-tts.ps1` tự tạo môi trường và cài lần đầu           |
 
 Tải model, ví dụ trên Windows:
 
@@ -30,6 +32,14 @@ powershell -ExecutionPolicy Bypass -File .\scripts\download-models.ps1 -ComfyMod
 ```
 
 Model mặc định là **FLUX.2 [klein] 4B** bản FP8 (Apache 2.0): một model vừa sinh ảnh từ chữ, vừa vẽ nhân vật vào cảnh mới theo ảnh tham chiếu, chạy 4 bước, vừa card 16 GB.
+
+Chuyển động AI dùng **Wan 2.2 image-to-video 14B** FP8 với LoRA lightx2v 4 bước (Apache 2.0), **Real-ESRGAN x2** (BSD-3) để phóng 480p lên 720p và **RIFE** (MIT, có sẵn trong ComfyUI) để nâng 16 lên 32 fps. Mọi giấy phép đều cho phép dùng thương mại.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\download-models.ps1 -ComfyModels "D:\ComfyUI_windows_portable\ComfyUI\models" -Video
+```
+
+Nên mở ComfyUI với `--reserve-vram 2` (thêm vào cuối dòng lệnh trong `run_nvidia_gpu.bat`) để Windows và trình duyệt còn VRAM, không giật khi app đang tạo clip.
 
 ## Chạy
 
@@ -65,11 +75,22 @@ Build bộ cài: `npm run app:build`. Tauri chỉ build cho hệ điều hành �
 2. **Kịch bản**: LLM viết xong thì sửa phong cách hình, tên, mô tả từng shot, lời dẫn. Thêm, xoá, đổi thứ tự shot bằng các nút trên mỗi shot.
 3. **Nhân vật**: tối đa 6 nhân vật, mỗi nhân vật sinh 3 phương án, bấm để khoanh ảnh ưng nhất. Ảnh được khoanh là ảnh tham chiếu. Mỗi shot có tối đa 3 nhân vật.
 4. **Khung hình**: vẽ các shot còn thiếu. Bấm vào một shot để sửa mô tả, vẽ lại, hoặc chọn lại một lần vẽ cũ. **Soát khung chưa soát** cho một model nhìn ảnh (ví dụ `gemma3:12b`) kiểm tra từng khung. Chỉ **lỗi nặng** mới đánh dấu ảnh: thiếu nhân vật, một nhân vật bị vẽ hai lần, sai loài, sai trang phục chính, có chữ, lỗi tay chân, sai vật chính của cảnh. Khác biệt nhỏ (dáng, góc máy, sắc màu, phụ kiện nhỏ) là **ghi chú**, không tính là lỗi. **Soát lại tất cả** chấm lại mọi khung, dùng khi app đổi cách soát. Mỗi ảnh giữ kết quả soát của riêng nó, nên soát lại chỉ tốn cho ảnh mới. **Tự sửa N cảnh lỗi** vẽ 3 ảnh mới cho mỗi cảnh lỗi, soát hết, và chỉ đổi sang ảnh mới khi ảnh đó đạt; không ảnh nào đạt thì giữ ảnh cũ.
-5. **Dựng phim**: chọn giọng đọc, nhạc nền (tuỳ chọn), có in phụ đề vào hình hay không, rồi bấm Dựng phim. Mỗi shot thành một đoạn dài bằng lời dẫn; máy quay theo gợi ý "chuyển động" (push-in, pull-out, pan, tilt, static, shake, kèm slow/fast). Nhạc tự nhỏ đi khi có lời dẫn, âm lượng chuẩn hoá về −14 LUFS như YouTube/TikTok. Ra file MP4 Full HD và phụ đề `.srt` cùng tên.
+5. **Chuyển động AI** (tuỳ chọn): trong khung chi tiết của một shot, chọn **AI** hoặc **AI 720p thật** ở mục "Chuyển động trong phim" và tả **hành động** bằng tiếng Anh (ai làm gì, chân tay ra sao, gió, khói). Storyboard mới tự viết sẵn hành động. Bấm **Tạo clip** cho một shot, hoặc **Tạo N clip chuyển động** trên thanh công cụ cho mọi shot đã chọn AI. Clip dài 5 giây, 720p, 32 fps. Đổi ảnh, hành động hoặc chất lượng thì clip cũ thôi được dùng cho tới khi tạo lại. Shot chưa có clip vẫn dựng bằng zoom/pan.
+
+   Đo trên RTX 5060 Ti 16 GB, RAM 32 GB:
+
+   | Chế độ       | Cách làm                                   | Một clip | Máy khi chạy            |
+   | ------------ | ------------------------------------------ | -------- | ----------------------- |
+   | AI           | Vẽ 480p, Real-ESRGAN lên 720p, RIFE 32 fps | ~4 phút  | Dùng được, hơi nặng     |
+   | AI 720p thật | Vẽ thẳng 720p, RIFE 32 fps                 | ~11 phút | Nặng, nên chạy lúc rảnh |
+
+   Chọn ảnh khung đầu đang ở giữa động tác thì clip sống động hơn ảnh đứng nghiêm. Cảnh hai nhân vật áp sát nhau dễ méo ở nửa sau clip.
+
+6. **Dựng phim**: chọn giọng đọc, nhạc nền (tuỳ chọn), có in phụ đề vào hình hay không, rồi bấm Dựng phim. Mỗi shot thành một đoạn dài bằng lời dẫn; máy quay theo gợi ý "chuyển động" (push-in, pull-out, pan, tilt, static, shake, kèm slow/fast). Shot có clip AI chạy hết clip (chậm hơn khoảng 6% để khớp 30 fps mà không mất khung); lời dẫn dài hơn clip thì giữ khung cuối. Nhạc tự nhỏ đi khi có lời dẫn, âm lượng chuẩn hoá về −14 LUFS như YouTube/TikTok. Ra file MP4 Full HD và phụ đề `.srt` cùng tên.
 
 Mọi việc nặng (LLM, vẽ ảnh) vào hàng đợi ở góc dưới bên trái và chạy lần lượt từng việc, vì card 16 GB không chứa nổi hai model cùng lúc. Có thể huỷ bất cứ lúc nào.
 
-Dự án lưu tại thư mục dữ liệu của app (đường dẫn hiện ở cuối màn Cài đặt). Mỗi dự án là một thư mục gồm `project.json`, `source.txt`, `characters/`, `shots/`, `render/` (phim, phụ đề, lời dẫn đã đọc).
+Dự án lưu tại thư mục dữ liệu của app (đường dẫn hiện ở cuối màn Cài đặt). Mỗi dự án là một thư mục gồm `project.json`, `source.txt`, `characters/`, `shots/`, `clips/` (clip AI), `render/` (phim, phụ đề, lời dẫn đã đọc).
 
 ## Phát triển
 
@@ -83,12 +104,12 @@ npm run bindings     # sinh lại type TS sau khi đổi struct Rust
 
 ## Hướng phát triển
 
-| Bản                 | Nội dung                                                                                                                                                                                                |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0.1                 | Dự án, Kịch bản, Nhân vật, Khung hình, Cài đặt, hàng đợi job                                                                                                                                            |
-| 0.2                 | Bước 4 Dựng phim: lời dẫn VieNeu-TTS, zoom/pan theo gợi ý camera, chuyển cảnh mờ, phụ đề .srt, MP4 bằng ffmpeg                                                                                          |
-| 0.2.1               | 6 nhân vật; góc máy đa dạng; nhạc nền tự nhỏ khi có lời; −14 LUFS; phụ đề in vào hình; tốc độ/rung máy; thêm/xoá/sắp xếp shot; soát lỗi khung hình bằng model nhìn ảnh                                  |
-| 0.2.2               | Tự sửa cảnh lỗi (vẽ nhiều lần, soát, chỉ đổi khi có ảnh đạt); soát chỉ ảnh mới; kết quả soát theo từng ảnh; sửa dải ảnh bị ép mất trong khung chi tiết                                                  |
-| **0.2.3 (bản này)** | Soát chia lỗi nặng (chặn ảnh) và ghi chú nhỏ (chỉ để tham khảo); nút Soát lại tất cả; giao diện mới: khung giữa 1360px, bảng bên cố định, nút chính màu mực, vàng chỉ đánh dấu lựa chọn                 |
-| 0.3: Chuyển động AI | Biến khung hình thành clip bằng Wan 2.2 image-to-video, chọn shot nào dùng clip AI, shot nào dùng zoom/pan                                                                                              |
-| Sau đó              | Whisper nghe lại lời dẫn; xuất cùng lúc 16:9 và 9:16; train LoRA cho nhân vật dùng lâu dài; preset phong cách; tiến độ từng bước vẽ (WebSocket ComfyUI); tự mở ComfyUI/Ollama; tải model ngay trong app |
+| Bản               | Nội dung                                                                                                                                                                                                |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0.1               | Dự án, Kịch bản, Nhân vật, Khung hình, Cài đặt, hàng đợi job                                                                                                                                            |
+| 0.2               | Bước 4 Dựng phim: lời dẫn VieNeu-TTS, zoom/pan theo gợi ý camera, chuyển cảnh mờ, phụ đề .srt, MP4 bằng ffmpeg                                                                                          |
+| 0.2.1             | 6 nhân vật; góc máy đa dạng; nhạc nền tự nhỏ khi có lời; −14 LUFS; phụ đề in vào hình; tốc độ/rung máy; thêm/xoá/sắp xếp shot; soát lỗi khung hình bằng model nhìn ảnh                                  |
+| 0.2.2             | Tự sửa cảnh lỗi (vẽ nhiều lần, soát, chỉ đổi khi có ảnh đạt); soát chỉ ảnh mới; kết quả soát theo từng ảnh; sửa dải ảnh bị ép mất trong khung chi tiết                                                  |
+| 0.2.3             | Soát chia lỗi nặng (chặn ảnh) và ghi chú nhỏ (chỉ để tham khảo); nút Soát lại tất cả; giao diện mới: khung giữa 1360px, bảng bên cố định, nút chính màu mực, vàng chỉ đánh dấu lựa chọn                 |
+| **0.3 (bản này)** | Chuyển động AI: Wan 2.2 image-to-video cho từng shot (480p phóng 720p, hoặc 720p thật), RIFE 32 fps, ghép clip vào phim; storyboard viết sẵn hành động; Cài đặt kiểm tra model video                    |
+| Sau đó            | Whisper nghe lại lời dẫn; xuất cùng lúc 16:9 và 9:16; train LoRA cho nhân vật dùng lâu dài; preset phong cách; tiến độ từng bước vẽ (WebSocket ComfyUI); tự mở ComfyUI/Ollama; tải model ngay trong app |

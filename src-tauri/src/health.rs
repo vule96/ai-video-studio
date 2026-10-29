@@ -3,6 +3,7 @@
 use serde::Serialize;
 use ts_rs::TS;
 
+use crate::pipeline::workflow::{RIFE, UPSCALER, WAN_HIGH, WAN_LORA_HIGH, WAN_LORA_LOW, WAN_LOW, WAN_TEXT_ENCODER, WAN_VAE};
 use crate::services::comfy::Comfy;
 use crate::services::ffmpeg;
 use crate::services::ollama::Ollama;
@@ -81,6 +82,7 @@ pub async fn check(http: reqwest::Client, s: &Settings) -> Health {
                 };
                 checks.push(check);
             }
+            checks.push(video_models(&comfy).await);
             Some(comfy.base)
         }
         Err(e) => {
@@ -103,4 +105,34 @@ pub async fn check(http: reqwest::Client, s: &Settings) -> Health {
     checks.push(Check::new("ffmpeg", ffmpeg.is_ok(), ffmpeg.err().map(|e| e.to_string()).unwrap_or_default()));
 
     Health { checks, comfy_url, ollama_models, tts_voices }
+}
+
+/// One line for all the clip models: they are optional, and eight red lines would bury the checks that matter.
+async fn video_models(comfy: &Comfy) -> Check {
+    let needed = [
+        ("UNETLoader", "unet_name", WAN_HIGH),
+        ("UNETLoader", "unet_name", WAN_LOW),
+        ("LoraLoaderModelOnly", "lora_name", WAN_LORA_HIGH),
+        ("LoraLoaderModelOnly", "lora_name", WAN_LORA_LOW),
+        ("CLIPLoader", "clip_name", WAN_TEXT_ENCODER),
+        ("VAELoader", "vae_name", WAN_VAE),
+        ("UpscaleModelLoader", "model_name", UPSCALER),
+        ("FrameInterpolationModelLoader", "model_name", RIFE),
+    ];
+    let mut missing = Vec::new();
+    for (node, input, file) in needed {
+        match comfy.options(node, input).await {
+            Ok(files) if files.iter().any(|f| f == file) => {}
+            Ok(_) => missing.push(file.to_owned()),
+            Err(e) => return Check::new("Chuyển động AI (Wan 2.2, tuỳ chọn)", false, e.to_string()),
+        }
+    }
+    Check::new(
+        "Chuyển động AI (Wan 2.2, tuỳ chọn)",
+        missing.is_empty(),
+        format!(
+            "Thiếu {}. Chạy scripts/download-models.ps1 -Video (khoảng 38 GB) rồi khởi động lại ComfyUI. Không có vẫn dựng phim zoom/pan bình thường.",
+            missing.join(", ")
+        ),
+    )
 }

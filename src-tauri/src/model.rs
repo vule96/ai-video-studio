@@ -82,6 +82,55 @@ pub struct Shot {
     pub motion: String,
     pub takes: Vec<Take>,
     pub selected_take: Option<String>,
+    /// How the frame moves in the film. `default` keeps project.json files from v0.2 loading.
+    #[serde(default)]
+    pub animation: Animation,
+    /// What moves during the shot, in English, for the image-to-video model.
+    #[serde(default)]
+    pub action: String,
+    /// Latest AI clip; used only while it still matches the shot (see `Shot::fresh_clip`).
+    #[serde(default)]
+    pub clip: Option<MotionClip>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/lib/bindings/")]
+pub enum Animation {
+    /// Zoom and pan over the still frame (ffmpeg).
+    #[default]
+    Camera,
+    /// Wan 2.2 clip drawn at 480p, upscaled to 720p.
+    Ai,
+    /// Wan 2.2 clip drawn at 720p: sharper, about three times slower.
+    AiHd,
+}
+
+/// An image-to-video clip made from one take. `file` is relative to the project folder.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/lib/bindings/")]
+pub struct MotionClip {
+    pub file: String,
+    /// Take id, action text and quality the clip was made from: changing any of them makes it stale.
+    pub take: String,
+    pub action: String,
+    pub hd: bool,
+    #[ts(type = "number")]
+    pub created_at: u64,
+}
+
+impl Shot {
+    /// The clip the film should use: only while the shot asks for AI motion and the clip was made from what the shot
+    /// shows now. Mirrored by `freshClip` in src/lib/clip.ts.
+    pub fn fresh_clip(&self) -> Option<&MotionClip> {
+        let clip = self.clip.as_ref()?;
+        let matches = self.animation != Animation::Camera
+            && self.selected_take.as_deref() == Some(clip.take.as_str())
+            && clip.action == self.action
+            && clip.hd == (self.animation == Animation::AiHd);
+        matches.then_some(clip)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -229,6 +278,8 @@ pub enum ProjectPatch {
         prompt: String,
         narration: String,
         motion: String,
+        animation: Animation,
+        action: String,
     },
     SelectTake {
         target: TakeTarget,
@@ -270,7 +321,7 @@ impl Project {
                 c.name = non_empty(name, "Tên nhân vật")?;
                 c.description = description.trim().to_owned();
             }
-            ProjectPatch::Shot { id, title, characters, framing, prompt, narration, motion } => {
+            ProjectPatch::Shot { id, title, characters, framing, prompt, narration, motion, animation, action } => {
                 if characters.len() > MAX_CHARACTERS_IN_SHOT {
                     return Err(AppError::invalid(format!("Mỗi shot tối đa {MAX_CHARACTERS_IN_SHOT} nhân vật")));
                 }
@@ -284,6 +335,8 @@ impl Project {
                 s.prompt = prompt.trim().to_owned();
                 s.narration = narration.trim().to_owned();
                 s.motion = motion.trim().to_owned();
+                s.animation = animation;
+                s.action = action.trim().to_owned();
             }
             ProjectPatch::SelectTake { target, take_id } => {
                 let (takes, selected) = self.takes_mut(&target)?;
@@ -307,6 +360,9 @@ impl Project {
                     motion: "slow push-in".into(),
                     takes: vec![],
                     selected_take: None,
+                    animation: Animation::Camera,
+                    action: String::new(),
+                    clip: None,
                 };
                 self.shots.insert(at, shot);
             }
@@ -397,6 +453,9 @@ mod tests {
             motion: String::new(),
             takes: vec![],
             selected_take: None,
+            animation: Animation::Camera,
+            action: String::new(),
+            clip: None,
         };
         Project {
             id: "p".into(),
@@ -433,5 +492,24 @@ mod tests {
         assert!(p.apply(ProjectPatch::MoveShot { id: "S02".into(), by: 1 }).is_err());
         assert!(p.apply(ProjectPatch::MoveShot { id: "S05".into(), by: -1 }).is_err());
         assert!(p.apply(ProjectPatch::DeleteShot { id: "S99".into() }).is_err());
+    }
+
+    #[test]
+    fn a_clip_goes_stale_when_the_shot_changes() {
+        let mut p = project(&["S01"]);
+        let s = &mut p.shots[0];
+        (s.animation, s.action, s.selected_take) = (Animation::Ai, "walks".into(), Some("t1".into()));
+        s.clip = Some(MotionClip { file: "clips/a.mp4".into(), take: "t1".into(), action: "walks".into(), hd: false, created_at: 0 });
+        assert!(s.fresh_clip().is_some());
+        s.animation = Animation::AiHd;
+        assert!(s.fresh_clip().is_none(), "quality changed");
+        s.animation = Animation::Camera;
+        assert!(s.fresh_clip().is_none(), "AI motion turned off");
+        s.animation = Animation::Ai;
+        s.selected_take = Some("t2".into());
+        assert!(s.fresh_clip().is_none(), "another take picked");
+        s.selected_take = Some("t1".into());
+        s.action = "runs".into();
+        assert!(s.fresh_clip().is_none(), "action edited");
     }
 }

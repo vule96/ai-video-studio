@@ -7,9 +7,9 @@ Hướng dẫn cho agent (Claude Code, Codex…) làm việc trong repo này. Co
 Desktop app (Tauri 2, Windows + macOS) biến một câu mô tả hoặc file PDF thành storyboard có nhân vật nhất quán, vẽ từng khung hình, rồi dựng thành phim có lời dẫn. Mọi AI chạy local qua HTTP:
 
 - **Ollama**: viết storyboard (nhân vật + shot) dạng JSON có schema; một model nhìn ảnh soát khung hình.
-- **ComfyUI**: vẽ ảnh bằng FLUX.2 klein 4B. Nhân vật giữ mặt nhờ ảnh tham chiếu (multi-reference).
+- **ComfyUI**: vẽ ảnh bằng FLUX.2 klein 4B. Nhân vật giữ mặt nhờ ảnh tham chiếu (multi-reference). Clip chuyển động bằng Wan 2.2 image-to-video 14B (lightx2v 4 bước) + Real-ESRGAN + RIFE, workflow ở `pipeline/workflow.rs`; tên file model là hằng số ở đó.
 - **VieNeu-TTS**: đọc lời dẫn qua server OpenAI-compatible (`scripts/start-tts.*`), chạy CPU.
-- **ffmpeg** (process, không qua HTTP): zoom/pan từng khung hình, ghép MP4, trộn nhạc, chuẩn hoá âm lượng, in phụ đề.
+- **ffmpeg** (process, không qua HTTP): zoom/pan từng khung hình hoặc phát clip AI, ghép MP4, trộn nhạc, chuẩn hoá âm lượng, in phụ đề.
 
 App không đóng gói model hay Python. Người dùng tự cài Ollama, ComfyUI, ffmpeg; VieNeu cài bằng script.
 

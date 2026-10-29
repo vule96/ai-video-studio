@@ -69,13 +69,14 @@ pub fn motion(hint: &str) -> Motion {
     Motion { camera, strength }
 }
 
-/// Frames for a shot whose narration lasts `audio_secs`.
-pub fn clip_frames(audio_secs: f64) -> u32 {
+/// Frames for a shot whose narration lasts `audio_secs`. An AI clip (`video_frames`) always plays to its end; when the
+/// narration is longer, its last frame holds.
+pub fn clip_frames(audio_secs: f64, video_frames: Option<u32>) -> u32 {
     let secs = (LEAD + audio_secs + TAIL).max(MIN_CLIP);
     // Durations are a few seconds to a few minutes; the cast cannot overflow.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let frames = (secs * f64::from(FPS)).round() as u32;
-    frames
+    frames.max(video_frames.unwrap_or(0))
 }
 
 pub fn frames_secs(frames: u32) -> f64 {
@@ -106,34 +107,58 @@ fn zoompan(m: Motion, frames: u32, (w, h): (u32, u32)) -> String {
     format!("zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps={FPS}")
 }
 
-/// One shot: a still image with a camera move, its narration, fades at both ends.
+/// What a shot shows. Paths are relative to the project folder (ffmpeg runs there).
+pub enum Picture<'a> {
+    /// A still frame with a camera move.
+    Still { image: &'a str, motion: Motion },
+    /// An AI clip with `frames` frames, each shown for one output frame: a 32 fps clip plays about 6% slower at 30 fps,
+    /// which is smoother than dropping frames.
+    Video { file: &'a str, frames: u32 },
+}
+
+/// One shot: the picture, its narration, fades at both ends.
 pub struct Clip<'a> {
-    /// Paths relative to the project folder (ffmpeg runs there).
-    pub image: &'a str,
+    pub picture: Picture<'a>,
     pub audio: Option<&'a str>,
     pub audio_secs: f64,
-    pub motion: Motion,
     pub size: (u32, u32),
     pub out: &'a str,
 }
 
+impl Clip<'_> {
+    pub fn frames(&self) -> u32 {
+        let video = match self.picture {
+            Picture::Video { frames, .. } => Some(frames),
+            Picture::Still { .. } => None,
+        };
+        clip_frames(self.audio_secs, video)
+    }
+}
+
 pub fn clip_args(c: &Clip) -> Vec<String> {
-    let frames = clip_frames(c.audio_secs);
+    let frames = c.frames();
     let secs = frames_secs(frames);
     let (w, h) = c.size;
-    // zoompan rounds its crop window to whole pixels; working at 2x the output size hides the jitter.
-    let (bw, bh) = (w * 2, h * 2);
-    let video = format!(
-        "[0:v]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},{},\
-         fade=t=in:d={FADE},fade=t=out:st={:.3}:d={FADE},format=yuv420p,setsar=1[v]",
-        zoompan(c.motion, frames, c.size),
-        secs - FADE
-    );
+    let (input, picture) = match c.picture {
+        Picture::Still { image, motion } => {
+            // zoompan rounds its crop window to whole pixels; working at 2x the output size hides the jitter.
+            let (bw, bh) = (w * 2, h * 2);
+            (image, format!("scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},{}", zoompan(motion, frames, c.size)))
+        }
+        Picture::Video { file, .. } => (
+            file,
+            format!(
+                "setpts=N/({FPS}*TB),scale={w}:{h}:force_original_aspect_ratio=increase:flags=lanczos,crop={w}:{h},\
+                 tpad=stop_mode=clone:stop_duration={secs:.3},fps={FPS}"
+            ),
+        ),
+    };
+    let video = format!("[0:v]{picture},fade=t=in:d={FADE},fade=t=out:st={:.3}:d={FADE},format=yuv420p,setsar=1[v]", secs - FADE);
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let lead_ms = (LEAD * 1000.0) as u32;
     let audio = format!("[1:a]aformat=sample_rates={SAMPLE_RATE}:channel_layouts=stereo,adelay={lead_ms}:all=1,apad,atrim=0:{secs:.3}[a]");
 
-    let mut args: Vec<String> = ["-y", "-hide_banner", "-loglevel", "error", "-i", c.image].map(String::from).to_vec();
+    let mut args: Vec<String> = ["-y", "-hide_banner", "-loglevel", "error", "-i", input].map(String::from).to_vec();
     match c.audio {
         Some(audio) => args.extend(["-i".into(), audio.into()]),
         None => args.extend(["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"].map(String::from)),
@@ -165,6 +190,16 @@ pub fn clip_args(c: &Clip) -> Vec<String> {
         .map(String::from),
     );
     args
+}
+
+/// Text for the image-to-video model: the shot's action, the camera move, the project style.
+pub fn clip_prompt(action: &str, camera: &str, style: &str) -> String {
+    [action.trim().trim_end_matches('.'), &format!("Camera: {}", camera.trim()), style.trim().trim_end_matches('.')]
+        .into_iter()
+        .filter(|p| !p.is_empty() && *p != "Camera: ")
+        .collect::<Vec<_>>()
+        .join(". ")
+        + "."
 }
 
 /// Input for ffmpeg's concat demuxer; names are relative to the list file.
@@ -376,17 +411,19 @@ mod tests {
 
     #[test]
     fn clip_lasts_narration_plus_padding() {
-        assert_eq!(clip_frames(10.0), (10.9 * 30.0_f64).round() as u32);
-        assert_eq!(clip_frames(0.0), 90);
+        assert_eq!(clip_frames(10.0, None), (10.9 * 30.0_f64).round() as u32);
+        assert_eq!(clip_frames(0.0, None), 90);
+        // An AI clip plays to its end even under a short line, and holds its last frame under a long one.
+        assert_eq!(clip_frames(2.0, Some(161)), 161);
+        assert_eq!(clip_frames(10.0, Some(161)), 327);
     }
 
     #[test]
     fn clip_args_use_silence_without_narration() {
         let clip = Clip {
-            image: "shots/a.png",
+            picture: Picture::Still { image: "shots/a.png", motion: motion("pan left") },
             audio: None,
             audio_secs: 0.0,
-            motion: motion("pan left"),
             size: (1920, 1080),
             out: "render/tmp/000.mp4",
         };
@@ -397,6 +434,30 @@ mod tests {
         assert!(filter.contains("d=90:s=1920x1080"));
         assert!(filter.contains("fade=t=out:st=2.600"));
         assert_eq!(args.last().unwrap(), "render/tmp/000.mp4");
+    }
+
+    #[test]
+    fn clip_prompt_joins_action_camera_and_style() {
+        assert_eq!(clip_prompt("Toru walks. ", "slow push-in", "Watercolor."), "Toru walks. Camera: slow push-in. Watercolor.");
+        assert_eq!(clip_prompt("Toru walks", " ", ""), "Toru walks.");
+    }
+
+    #[test]
+    fn video_clips_play_frame_by_frame_and_hold_the_end() {
+        let clip = Clip {
+            picture: Picture::Video { file: "clips/S01.mp4", frames: 161 },
+            audio: Some("render/audio/a.wav"),
+            audio_secs: 2.0,
+            size: (1920, 1080),
+            out: "o.mp4",
+        };
+        let args = clip_args(&clip);
+        let filter = &args[args.iter().position(|a| a == "-filter_complex").unwrap() + 1];
+        assert!(args.windows(2).any(|w| w == ["-i", "clips/S01.mp4"]));
+        assert!(filter.starts_with("[0:v]setpts=N/(30*TB),scale=1920:1080"));
+        assert!(filter.contains("tpad=stop_mode=clone"));
+        assert!(!filter.contains("zoompan"));
+        assert!(args.windows(2).any(|w| w == ["-frames:v", "161"]));
     }
 
     #[test]

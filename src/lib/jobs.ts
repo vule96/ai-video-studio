@@ -28,7 +28,7 @@ export function isActive(job: JobInfo): boolean {
   return job.status === 'queued' || job.status === 'running';
 }
 
-/** What a project's queued/running jobs are working on, as keys like `shot:S01`, `character:toru`, `review:S01`, `storyboard`, `render`. */
+/** What a project's queued/running jobs are working on, as keys like `shot:S01`, `character:toru`, `review:S01`, `clip:S01`, `storyboard`, `render`. */
 export function busyTargets(jobs: Iterable<JobInfo>, projectId: string): Set<string> {
   const out = new Set<string>();
   for (const job of jobs) {
@@ -52,6 +52,9 @@ export function busyTargets(jobs: Iterable<JobInfo>, projectId: string): Set<str
         break;
       case 'fix':
         for (const id of spec.shotIds) out.add(`shot:${id}`);
+        break;
+      case 'clips':
+        for (const id of spec.shotIds) out.add(`clip:${id}`);
         break;
     }
   }

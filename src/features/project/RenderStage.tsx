@@ -3,6 +3,7 @@ import { Check, CircleAlert, Music } from 'lucide-react';
 import { useState } from 'react';
 
 import type { Project } from '@/lib/bindings/Project';
+import { freshClip, needsClip } from '@/lib/clip';
 import { api, errorMessage, projectFileUrl } from '@/lib/ipc';
 import { isActive, useJobs } from '@/lib/jobs';
 import { keys, useEnqueue, useHealth } from '@/lib/queries';
@@ -35,6 +36,8 @@ export function RenderStage({ project, root, busy }: StageProps) {
   const missing = project.shots.filter((s) => !s.takes.some((t) => t.id === s.selectedTake)).map((s) => s.id);
   const silent = project.shots.filter((s) => s.narration.trim() === '').length;
   const flagged = project.shots.filter((s) => currentReview(s)?.ok === false);
+  const clipped = project.shots.filter((s) => freshClip(s)).length;
+  const unclipped = project.shots.filter(needsClip);
   const services = (health.data?.checks ?? []).filter((c) => c.name === 'VieNeu-TTS' || c.name === 'ffmpeg');
   const rendering = busy.has('render');
   const aspect = project.format === 'landscape' ? '16 / 9' : '9 / 16';
@@ -141,6 +144,12 @@ export function RenderStage({ project, root, busy }: StageProps) {
             {flagged.length > 0 && (
               <Item ok={false} hint="Xem ở bước Khung hình. Vẫn dựng được nếu bạn thấy ổn.">
                 {`${flagged.map((s) => s.id).join(', ')} có lỗi nặng`}
+              </Item>
+            )}
+            {clipped > 0 && <Item ok>{`${String(clipped)} shot dùng clip AI`}</Item>}
+            {unclipped.length > 0 && (
+              <Item ok={false} hint="Tạo ở bước Khung hình. Shot chưa có clip vẫn dựng được, bằng zoom/pan.">
+                {`${unclipped.map((s) => s.id).join(', ')} chưa có clip AI`}
               </Item>
             )}
             {silent > 0 && (

@@ -78,6 +78,9 @@ mod tests {
             prompt: "In a meadow.".into(),
             narration: String::new(),
             motion: String::new(),
+            animation: crate::model::Animation::Camera,
+            action: String::new(),
+            clip: None,
             takes: vec![],
             selected_take: None,
         }

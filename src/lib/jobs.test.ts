@@ -28,10 +28,12 @@ describe('busyTargets', () => {
       job('p1', 'queued', { type: 'render', projectId: 'p1', voice: 'Thiện Minh', burnSubtitles: false }),
       job('p1', 'queued', { type: 'review', projectId: 'p1', shotIds: ['S02'], again: false }),
       job('p1', 'queued', { type: 'fix', projectId: 'p1', shotIds: ['S03'], attempts: 3 }),
+      job('p1', 'queued', { type: 'clips', projectId: 'p1', shotIds: ['S04'], again: false }),
       job('p2', 'running', { type: 'storyboard', projectId: 'p2', shotCount: 4 }),
     ];
     expect([...busyTargets(jobs, 'p1')].sort()).toEqual([
       'character:toru',
+      'clip:S04',
       'render',
       'review:S02',
       'shot:S01',

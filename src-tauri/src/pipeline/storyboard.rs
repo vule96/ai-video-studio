@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::text::{chunk_text, slug};
 use crate::error::{AppError, AppResult};
-use crate::model::{Character, Shot, SourceKind};
+use crate::model::{Animation, Character, Shot, SourceKind};
 use crate::services::ollama::{Ollama, Prompt};
 
 /// Below this the whole source goes straight to the scriptwriter; above it, it is summarised first.
@@ -102,6 +102,9 @@ pub fn normalize(raw: &Value) -> AppResult<Draft> {
                 motion: clip(str_of(&s["motion"]), 120),
                 takes: vec![],
                 selected_take: None,
+                animation: Animation::Camera,
+                action: clip(str_of(&s["action"]), 400),
+                clip: None,
             }
         })
         .collect();
@@ -148,8 +151,9 @@ fn schema() -> Value {
                 "framing": { "type": "string" },
                 "prompt": { "type": "string" },
                 "narration": { "type": "string" },
-                "motion": { "type": "string" }
-            }, "required": ["title", "characters", "framing", "prompt", "narration"] } }
+                "motion": { "type": "string" },
+                "action": { "type": "string" }
+            }, "required": ["title", "characters", "framing", "prompt", "narration", "action"] } }
         },
         "required": ["title", "style", "characters", "shots"]
     })
@@ -184,6 +188,9 @@ Output a storyboard with:
     (summarise or paraphrase; never copy long passages from the source).
   - "motion": one camera move: "push-in", "pull-out", "pan left", "pan right", "tilt up", "tilt down", "static" or
     "shake", optionally with "slow" or "fast" (e.g. "slow push-in", "fast pan right", "shake" for impacts).
+  - "action": ENGLISH, 1-2 sentences for an image-to-video model: what physically moves during the next five seconds,
+    in present tense. Name who does what with concrete body movements (steps forward, raises the sword, turns her
+    head), plus movement in the surroundings (wind in the grass, smoke rising, waves). Not the camera, not the story.
 Composition: never use the same framing twice in a row; mix wide, medium, close-up, over-the-shoulder, low-angle and
 high-angle views. Vary where the main character is (left third, right third, foreground, small in a wide view) and what
 they are doing (walking, running, kneeling, reaching, fighting, looking up), not just standing in the centre.
@@ -204,7 +211,7 @@ mod tests {
                 { "id": "", "name": "", "description": "nameless, dropped" }
             ],
             "shots": [
-                { "title": "A", "characters": ["toru", "ghost", "toru"], "framing": "wide", "prompt": "meadow", "narration": "n" },
+                { "title": "A", "characters": ["toru", "ghost", "toru"], "framing": "wide", "prompt": "meadow", "narration": "n", "action": "  Toru   walks  " },
                 { "title": "empty prompt is dropped", "characters": [], "framing": "", "prompt": "  ", "narration": "" },
                 { "title": "B", "characters": ["toru2"], "framing": "close", "prompt": "rain", "narration": "n" }
             ]
@@ -213,6 +220,7 @@ mod tests {
         assert_eq!(d.characters.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), ["toru", "toru2"]);
         assert_eq!(d.shots.len(), 2);
         assert_eq!(d.shots[0].characters, ["toru"]);
+        assert_eq!((d.shots[0].action.as_str(), d.shots[0].animation), ("Toru walks", Animation::Camera));
         assert_eq!((d.shots[1].id.as_str(), d.shots[1].characters.as_slice()), ("S02", ["toru2".to_owned()].as_slice()));
     }
 

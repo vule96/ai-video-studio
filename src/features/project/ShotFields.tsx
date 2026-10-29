@@ -1,19 +1,36 @@
 import clsx from 'clsx';
 
+import type { Animation } from '@/lib/bindings/Animation';
 import type { Project } from '@/lib/bindings/Project';
 import type { Shot } from '@/lib/bindings/Shot';
 import { useDraft } from '@/lib/draft';
 import { usePatchProject } from '@/lib/queries';
-import { Field, Input, TextArea } from '@/ui';
+import { Field, Input, Segmented, TextArea } from '@/ui';
 
-type Draft = Pick<Shot, 'title' | 'characters' | 'framing' | 'prompt' | 'narration' | 'motion'>;
+type Draft = Pick<
+  Shot,
+  'title' | 'characters' | 'framing' | 'prompt' | 'narration' | 'motion' | 'animation' | 'action'
+>;
 
 /** Same limit as `MAX_CHARACTERS_IN_SHOT` in model.rs: more references and the model mixes faces up. */
 const MAX_IN_SHOT = 3;
 
+const ANIMATIONS = [
+  { value: 'camera', label: 'Zoom/pan' },
+  { value: 'ai', label: 'AI' },
+  { value: 'aiHd', label: 'AI 720p thật' },
+] as const satisfies readonly { value: Animation; label: string }[];
+
+/** Times measured on an RTX 5060 Ti 16 GB (README, v0.3). */
+const ANIMATION_HINTS: Record<Animation, string> = {
+  camera: 'Ảnh tĩnh, máy quay zoom hoặc lia theo gợi ý bên dưới. Không tốn thời gian.',
+  ai: 'Wan 2.2 cho nhân vật cử động 5 giây: vẽ 480p, phóng lên 720p, mượt 32 fps. Khoảng 4 phút mỗi cảnh.',
+  aiHd: 'Vẽ thẳng 720p: nét hơn chút nhưng khoảng 11 phút mỗi cảnh và máy chạy nặng. Nên chạy lúc không dùng máy.',
+};
+
 function draftOf(shot: Shot): Draft {
-  const { title, characters, framing, prompt, narration, motion } = shot;
-  return { title, characters, framing, prompt, narration, motion };
+  const { title, characters, framing, prompt, narration, motion, animation, action } = shot;
+  return { title, characters, framing, prompt, narration, motion, animation, action };
 }
 
 /** Local edit state for one shot. `save` patches only this shot, so takes added meanwhile survive. */
@@ -134,9 +151,44 @@ export function ShotFields({ project, draft, onChange, compact = false }: Props)
           />
         )}
       </Field>
+      <fieldset className="flex flex-col gap-1.5">
+        <legend className="mb-1.5 text-[12.5px] font-medium text-dim">Chuyển động trong phim</legend>
+        <Segmented
+          label="Chuyển động trong phim"
+          value={draft.animation}
+          options={ANIMATIONS}
+          onChange={(v) => {
+            set('animation', v);
+          }}
+        />
+        <p className="text-[12px] leading-snug text-faint">{ANIMATION_HINTS[draft.animation]}</p>
+      </fieldset>
+      {draft.animation !== 'camera' && (
+        <Field
+          label="Hành động (tiếng Anh, gửi cho model video)"
+          hint="Ai làm gì trong 5 giây: bước chân, tay, quay đầu; gió, khói, nước. Tả càng cụ thể nhân vật càng cử động rõ."
+        >
+          {(id) => (
+            <TextArea
+              id={id}
+              rows={2}
+              className="font-mono text-[12.5px]"
+              value={draft.action}
+              placeholder="She steps forward and raises her lantern, her cloak swaying in the wind."
+              onChange={(e) => {
+                set('action', e.target.value);
+              }}
+            />
+          )}
+        </Field>
+      )}
       <Field
         label="Chuyển động máy quay"
-        hint="push-in, pull-out, pan left/right, tilt up/down, static, shake; thêm slow hoặc fast để đổi tốc độ."
+        hint={
+          draft.animation === 'camera'
+            ? 'push-in, pull-out, pan left/right, tilt up/down, static, shake; thêm slow hoặc fast để đổi tốc độ.'
+            : 'Cũng gửi cho model video, ví dụ slow push-in, tracking shot, static.'
+        }
       >
         {(id) => (
           <Input
