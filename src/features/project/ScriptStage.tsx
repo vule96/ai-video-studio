@@ -1,10 +1,11 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, Plus } from 'lucide-react';
 import { useState } from 'react';
 
 import type { Shot } from '@/lib/bindings/Shot';
 import { useDraft } from '@/lib/draft';
-import { errorMessage } from '@/lib/ipc';
-import { useEnqueue, usePatchProject } from '@/lib/queries';
+import { api, errorMessage } from '@/lib/ipc';
+import { keys, useEnqueue, usePatchProject } from '@/lib/queries';
 import { Button, ErrorText, Field, Input, NumberInput, Panel, Segmented, TextArea, Toolbar } from '@/ui';
 
 import type { StageProps } from './ProjectScreen';
@@ -18,7 +19,14 @@ export function ScriptStage({ project, busy }: StageProps) {
     <div className="grid grid-cols-[360px_minmax(0,1fr)] items-start gap-8">
       <MetaEditor {...{ project }} />
       <section className="flex min-w-0 flex-col gap-4" aria-label="Danh sách shot">
-        <Toolbar actions={<RewriteButton projectId={project.id} shotCount={project.shots.length || 6} />}>
+        <Toolbar
+          actions={
+            <>
+              <ScriptFile projectId={project.id} disabled={busy.has('storyboard')} />
+              <RewriteButton projectId={project.id} shotCount={project.shots.length || 6} />
+            </>
+          }
+        >
           <span className="text-[15px] font-semibold text-ink">{project.shots.length} shot</span>
           <span className="ml-2">theo thứ tự trong phim</span>
         </Toolbar>
@@ -218,6 +226,61 @@ function ShotCard({ projectId, shot, project, position, busy }: ShotCardProps) {
           Lưu shot
         </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Round trip through `script.json` in the project folder, for reviewing the script outside the app (another AI, a
+ * colleague). Import changes text only; images stay, and a file with unknown ids changes nothing.
+ */
+function ScriptFile({ projectId, disabled }: { projectId: string; disabled: boolean }) {
+  const qc = useQueryClient();
+  const [note, setNote] = useState<string | null>(null);
+  const exportScript = useMutation({
+    mutationFn: () => api.projectScriptExport(projectId),
+    onSuccess: (path) => {
+      setNote(path);
+    },
+  });
+  const importScript = useMutation({
+    mutationFn: () => api.projectScriptImport(projectId),
+    onSuccess: ([project, changed]) => {
+      qc.setQueryData(keys.project(project.id), project);
+      setNote(`Đã nhập: ${String(changed)} shot thay đổi.`);
+    },
+  });
+  const error = exportScript.error ?? importScript.error;
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <div className="flex gap-2">
+        <Button
+          disabled={disabled || exportScript.isPending}
+          title="Ghi script.json vào thư mục dự án để xem và sửa ngoài app."
+          onClick={() => {
+            setNote(null);
+            exportScript.mutate();
+          }}
+        >
+          Xuất kịch bản
+        </Button>
+        <Button
+          disabled={disabled || importScript.isPending}
+          title="Đọc lại script.json đã sửa. Chỉ đổi chữ; ảnh và clip giữ nguyên."
+          onClick={() => {
+            setNote(null);
+            importScript.mutate();
+          }}
+        >
+          Nhập kịch bản
+        </Button>
+      </div>
+      {note && (
+        <p className="max-w-[520px] text-right font-mono text-[12px] break-all text-faint select-all">
+          {note}
+        </p>
+      )}
+      {error && <ErrorText>{errorMessage(error)}</ErrorText>}
     </div>
   );
 }

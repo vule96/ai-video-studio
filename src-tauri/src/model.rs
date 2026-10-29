@@ -417,6 +417,111 @@ impl Project {
     }
 }
 
+/// The editable text of a project: what "Xuất kịch bản" writes to `script.json` and "Nhập kịch bản" reads back, so
+/// the script can be reviewed and fixed outside the app. Images, clips and the shot list itself stay as they are.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Script {
+    pub title: String,
+    pub style: String,
+    pub characters: Vec<ScriptCharacter>,
+    pub shots: Vec<ScriptShot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptCharacter {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptShot {
+    pub id: String,
+    pub title: String,
+    pub characters: Vec<String>,
+    pub framing: String,
+    pub prompt: String,
+    pub narration: String,
+    pub motion: String,
+    #[serde(default)]
+    pub animation: Animation,
+    #[serde(default)]
+    pub action: String,
+}
+
+impl Project {
+    pub fn script(&self) -> Script {
+        Script {
+            title: self.title.clone(),
+            style: self.style.clone(),
+            characters: self
+                .characters
+                .iter()
+                .map(|c| ScriptCharacter { id: c.id.clone(), name: c.name.clone(), description: c.description.clone() })
+                .collect(),
+            shots: self
+                .shots
+                .iter()
+                .map(|s| ScriptShot {
+                    id: s.id.clone(),
+                    title: s.title.clone(),
+                    characters: s.characters.clone(),
+                    framing: s.framing.clone(),
+                    prompt: s.prompt.clone(),
+                    narration: s.narration.clone(),
+                    motion: s.motion.clone(),
+                    animation: s.animation,
+                    action: s.action.clone(),
+                })
+                .collect(),
+        }
+    }
+
+    /// Applies an edited script through the same checks as UI edits. Every id must already exist: adding or removing
+    /// shots and characters stays in the app, where their images live. Returns how many shots were changed. The caller
+    /// saves only on success, so a bad file changes nothing.
+    pub fn apply_script(&mut self, script: Script) -> AppResult<usize> {
+        self.apply(ProjectPatch::Meta { title: script.title, style: script.style, format: self.format })?;
+        for c in script.characters {
+            if self.character_mut(&c.id).is_none() {
+                return Err(AppError::invalid(format!(
+                    "Kịch bản có nhân vật '{}' mà dự án không có. Thêm nhân vật trong app, file chỉ sửa được nhân vật có sẵn.",
+                    c.id
+                )));
+            }
+            self.apply(ProjectPatch::Character { id: c.id, name: c.name, description: c.description })?;
+        }
+        let mut changed = 0;
+        for s in script.shots {
+            let before = self.shots.iter().find(|x| x.id == s.id).cloned();
+            let Some(before) = before else {
+                return Err(AppError::invalid(format!(
+                    "Kịch bản có shot '{}' mà dự án không có. Thêm shot trong app rồi xuất lại kịch bản.",
+                    s.id
+                )));
+            };
+            let id = s.id.clone();
+            self.apply(ProjectPatch::Shot {
+                id: s.id,
+                title: s.title,
+                characters: s.characters,
+                framing: s.framing,
+                prompt: s.prompt,
+                narration: s.narration,
+                motion: s.motion,
+                animation: s.animation,
+                action: s.action,
+            })?;
+            let after = self.shots.iter().find(|x| x.id == id);
+            changed += usize::from(after != Some(&before));
+        }
+        Ok(changed)
+    }
+}
+
 /// The take a character or shot currently uses.
 pub fn selected<'a>(takes: &'a [Take], selected: Option<&String>) -> Option<&'a Take> {
     let id = selected?;
@@ -492,6 +597,39 @@ mod tests {
         assert!(p.apply(ProjectPatch::MoveShot { id: "S02".into(), by: 1 }).is_err());
         assert!(p.apply(ProjectPatch::MoveShot { id: "S05".into(), by: -1 }).is_err());
         assert!(p.apply(ProjectPatch::DeleteShot { id: "S99".into() }).is_err());
+    }
+
+    #[test]
+    fn script_round_trips_and_a_bad_file_names_the_problem() {
+        let mut p = project(&["S01", "S02"]);
+        p.characters.push(Character {
+            id: "son".into(),
+            name: "Sơn Tinh".into(),
+            description: String::new(),
+            takes: vec![],
+            selected_take: None,
+        });
+        let mut script = p.script();
+        script.style = "Dong Ho woodblock".into();
+        script.characters[0].description = "young man, green headband".into();
+        script.shots[1].characters = vec!["son".into()];
+        script.shots[1].prompt = "  Son Tinh on the mountain  ".into();
+        let json = serde_json::to_string(&script).unwrap();
+        let changed = p.apply_script(serde_json::from_str(&json).unwrap()).unwrap();
+        assert_eq!(changed, 1);
+        assert_eq!(p.style, "Dong Ho woodblock");
+        assert_eq!(p.shots[1].prompt, "Son Tinh on the mountain");
+        assert_eq!(p.characters[0].description, "young man, green headband");
+
+        let mut unknown = p.script();
+        unknown.shots[0].id = "S99".into();
+        assert!(p.apply_script(unknown).unwrap_err().to_string().contains("S99"));
+        let mut ghost = p.script();
+        ghost.shots[0].characters = vec!["thuy".into()];
+        assert!(p.apply_script(ghost).is_err());
+        // Files written before v0.3 have no animation/action: they default instead of failing.
+        let old = r#"{"title":"t","style":"","characters":[],"shots":[{"id":"S01","title":"","characters":[],"framing":"","prompt":"p","narration":"","motion":""}]}"#;
+        assert!(p.apply_script(serde_json::from_str(old).unwrap()).is_ok());
     }
 
     #[test]

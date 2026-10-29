@@ -72,6 +72,28 @@ pub async fn project_patch(state: State<'_, AppState>, id: String, patch: Projec
     Ok(state.store.update(&id, |p| p.apply(patch)).await?.0)
 }
 
+/// Where "Xuất kịch bản" writes and "Nhập kịch bản" reads, inside the project folder.
+const SCRIPT_FILE: &str = "script.json";
+
+/// Writes the script as `script.json` in the project folder and returns its full path.
+#[tauri::command]
+pub async fn project_script_export(state: State<'_, AppState>, id: String) -> AppResult<String> {
+    let project = state.store.get(&id).await?;
+    state.store.write_file(&id, SCRIPT_FILE, &serde_json::to_vec_pretty(&project.script())?).await?;
+    Ok(state.store.dir(&id)?.join(SCRIPT_FILE).to_string_lossy().into_owned())
+}
+
+/// Reads `script.json` back from the project folder and applies it; returns the project and how many shots changed.
+#[tauri::command]
+pub async fn project_script_import(state: State<'_, AppState>, id: String) -> AppResult<(Project, usize)> {
+    let path = state.store.dir(&id)?.join(SCRIPT_FILE);
+    let text = tokio::fs::read_to_string(&path)
+        .await
+        .map_err(|_| AppError::not_found(format!("Không thấy {}. Bấm Xuất kịch bản trước.", path.display())))?;
+    let script = serde_json::from_str(&text).map_err(|e| AppError::invalid(format!("script.json không hợp lệ: {e}")))?;
+    state.store.update(&id, |p| p.apply_script(script)).await
+}
+
 /// Background music upload. The file arrives as the raw request body (no JSON number arrays for megabytes of audio);
 /// project id and the percent-encoded file name come as headers.
 #[tauri::command]

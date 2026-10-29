@@ -40,6 +40,10 @@ export const api = {
     }),
   projectMusicRemove: (id: string) => invoke<Project>('project_music_remove', { id }),
   projectVideoDelete: (id: string) => invoke<Project>('project_video_delete', { id }),
+  /** Writes `script.json` in the project folder; returns its full path. */
+  projectScriptExport: (id: string) => invoke<string>('project_script_export', { id }),
+  /** Applies `script.json` from the project folder; returns the project and how many shots changed. */
+  projectScriptImport: (id: string) => invoke<[Project, number]>('project_script_import', { id }),
   jobEnqueue: (spec: JobSpec) => invoke<JobInfo>('job_enqueue', { spec }),
   jobsList: () => invoke<JobInfo[]>('jobs_list'),
   jobCancel: (id: string) => invoke<null>('job_cancel', { id }),

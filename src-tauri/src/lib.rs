@@ -64,6 +64,8 @@ pub fn run() {
             commands::project_music_set,
             commands::project_music_remove,
             commands::project_video_delete,
+            commands::project_script_export,
+            commands::project_script_import,
             commands::job_enqueue,
             commands::jobs_list,
             commands::job_cancel,
