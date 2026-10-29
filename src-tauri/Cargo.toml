@@ -1,0 +1,36 @@
+[package]
+name = "ai-video-studio"
+version = "0.2.1"
+description = "Local AI storyboard and video studio"
+edition = "2024"
+rust-version = "1.90"
+
+[lib]
+# `_lib` suffix avoids a name clash with the bin target on Windows (cargo issue #8519)
+name = "ai_video_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+tauri = { version = "2.12", features = ["protocol-asset"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.13", features = ["json", "multipart", "query"] }
+tokio = { version = "1", features = ["sync", "time", "fs", "macros", "process"] }
+tokio-util = "0.7"
+thiserror = "2"
+ts-rs = "12"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["rt", "macros"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

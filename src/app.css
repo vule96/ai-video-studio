@@ -1,0 +1,59 @@
+@import 'tailwindcss';
+
+/* Self-hosted: the app works offline, no Google Fonts. Both families ship a Vietnamese subset. */
+@import '@fontsource/ibm-plex-sans/400.css';
+@import '@fontsource/ibm-plex-sans/500.css';
+@import '@fontsource/ibm-plex-sans/600.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+
+/*
+ * A neutral graphite surround, like an editing suite: generated images are judged against
+ * grey that does not tint them. The one accent is the yellow of a china marker, used only
+ * for what the user chose (the "circled take") and the main action.
+ */
+@theme {
+  --font-sans: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', Consolas, monospace;
+
+  --color-rail: #1e1f22;
+  --color-desk: #2a2c30;
+  --color-sheet: #33363b;
+  --color-line: #4a4e55;
+  --color-ink: #e6e7e9;
+  --color-dim: #a0a4ab;
+  --color-faint: #6f747c;
+  --color-marker: #f2c230;
+  --color-marker-ink: #1e1f22;
+  --color-alert: #ef7d6d;
+  --color-ok: #7cc79a;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-desk font-sans text-[14px] leading-[1.5] text-ink antialiased;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-marker;
+  }
+
+  ::selection {
+    @apply bg-marker text-marker-ink;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}
