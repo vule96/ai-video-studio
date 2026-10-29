@@ -5,30 +5,31 @@ import type { Shot } from '@/lib/bindings/Shot';
 import { useDraft } from '@/lib/draft';
 import { errorMessage } from '@/lib/ipc';
 import { useEnqueue, usePatchProject } from '@/lib/queries';
-import { Button, ErrorText, Field, Input, NumberInput, Segmented, TextArea } from '@/ui';
+import { Button, ErrorText, Field, Input, NumberInput, Panel, Segmented, TextArea, Toolbar } from '@/ui';
 
 import type { StageProps } from './ProjectScreen';
 import { ShotFields, useShotDraft } from './ShotFields';
 
+/** Left: what applies to the whole film. Right: the shot list, in film order. */
 export function ScriptStage({ project, busy }: StageProps) {
   const patch = usePatchProject(project.id);
   const last = project.shots.at(-1)?.id ?? null;
   return (
-    <div className="flex max-w-3xl flex-col gap-10">
+    <div className="grid grid-cols-[360px_minmax(0,1fr)] items-start gap-8">
       <MetaEditor {...{ project }} />
-      <section className="flex flex-col gap-4">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-[16px] font-medium">{project.shots.length} shot</h2>
-          <RewriteButton projectId={project.id} shotCount={project.shots.length || 6} />
-        </div>
+      <section className="flex min-w-0 flex-col gap-4" aria-label="Danh sách shot">
+        <Toolbar actions={<RewriteButton projectId={project.id} shotCount={project.shots.length || 6} />}>
+          <span className="text-[15px] font-semibold text-ink">{project.shots.length} shot</span>
+          <span className="ml-2">theo thứ tự trong phim</span>
+        </Toolbar>
         {project.shots.length === 0 && (
           <p className="text-dim">
             Chưa có shot nào. Bấm “Viết lại storyboard” để LLM viết từ nội dung nguồn.
           </p>
         )}
-        <ol className="flex flex-col gap-4">
+        <ol className="flex flex-col gap-3">
           {project.shots.map((shot, i) => (
-            <li key={shot.id} className="rounded-md border border-line bg-sheet/40 p-4">
+            <li key={shot.id} className="rounded-md bg-sheet p-5">
               <ShotCard
                 projectId={project.id}
                 shot={shot}
@@ -64,7 +65,7 @@ function MetaEditor({ project }: Pick<StageProps, 'project'>) {
   });
 
   return (
-    <section className="flex flex-col gap-4">
+    <Panel title="Toàn bộ phim" hint="Áp dụng cho mọi khung hình." className="sticky top-[176px]">
       <Field label="Tên dự án">
         {(id) => (
           <Input
@@ -83,8 +84,8 @@ function MetaEditor({ project }: Pick<StageProps, 'project'>) {
         {(id) => (
           <TextArea
             id={id}
-            rows={3}
-            className="font-mono text-[13px]"
+            rows={6}
+            className="font-mono text-[12.5px]"
             value={draft.style}
             onChange={(e) => {
               set({ style: e.target.value });
@@ -93,7 +94,7 @@ function MetaEditor({ project }: Pick<StageProps, 'project'>) {
         )}
       </Field>
       <div className="flex flex-col gap-1">
-        <span className="text-[13px] text-dim">Khung hình</span>
+        <span className="text-[12.5px] font-medium text-dim">Khung hình</span>
         <Segmented
           label="Khung hình"
           value={draft.format}
@@ -118,7 +119,7 @@ function MetaEditor({ project }: Pick<StageProps, 'project'>) {
           Lưu
         </Button>
       </div>
-    </section>
+    </Panel>
   );
 }
 

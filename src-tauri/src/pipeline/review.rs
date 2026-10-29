@@ -2,11 +2,12 @@
 
 use serde_json::{Value, json};
 
-use crate::model::{Character, Review, Shot};
+use crate::model::{Character, Review, Shot, Take};
 
-pub const SYSTEM_PROMPT: &str = "You are a strict continuity supervisor checking illustrated storyboard frames before a video \
-is published. Compare the image with the expected cast and scene. Report only problems you can clearly see; do not \
-nitpick style. Write each issue as one short sentence in Vietnamese.";
+pub const SYSTEM_PROMPT: &str = "You are a continuity supervisor checking illustrated storyboard frames before a video is \
+published. Compare the image with the expected cast and scene and sort what you see into major problems, which make \
+the frame unusable, and minor differences, which a viewer would accept. Write each item as one short sentence in \
+Vietnamese.";
 
 pub fn user_prompt(shot: &Shot, cast: &[&Character]) -> String {
     let cast_lines: Vec<String> = cast.iter().map(|c| format!("- {}: {}", c.name, c.description)).collect();
@@ -17,10 +18,15 @@ pub fn user_prompt(shot: &Shot, cast: &[&Character]) -> String {
     };
     format!(
         "Expected cast. {cast}\n\nExpected scene ({}): {}\n\n\
-         Check for: a listed character missing; a listed character drawn twice; an extra prominent figure that is not \
-         listed; a character whose species, clothes or colors clearly differ from the description; visible text, \
-         letters, logos or watermarks; broken anatomy (extra limbs, merged bodies); a scene that clearly does not match. \
-         Answer as JSON: ok = true when there is no clear problem, issues = list of problems (empty when ok).",
+         major = only these: a listed character is missing; a listed character appears twice; a prominent figure that \
+         is not listed; a character is the wrong kind of being (a human instead of an animal, a four-legged animal \
+         instead of an upright warrior); a character's main outfit or headwear is clearly different (for example a \
+         straw hat instead of a crown); large legible text, letters or logos; broken anatomy (extra limbs, merged \
+         bodies); the key object or setting of the scene is wrong (a wheeled cart instead of a carried sedan chair). \
+         minor = everything else that differs: pose, gesture, expression, camera framing or angle, lighting, colour \
+         shades, eye colour, small accessories, a small seal or signature mark, how closely the style matches. \
+         Held items only matter when the scene shows them; never report one as missing. \
+         Answer as JSON: major = list (empty when the frame is usable), minor = list.",
         shot.framing, shot.prompt
     )
 }
@@ -28,24 +34,38 @@ pub fn user_prompt(shot: &Shot, cast: &[&Character]) -> String {
 pub fn schema() -> Value {
     json!({
         "type": "object",
-        "properties": { "ok": { "type": "boolean" }, "issues": { "type": "array", "items": { "type": "string" } } },
-        "required": ["ok", "issues"]
+        "properties": {
+            "major": { "type": "array", "items": { "type": "string" } },
+            "minor": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["major", "minor"]
     })
 }
 
-/// Model output is untrusted: keep at most five short issues; "ok" with issues listed counts as not ok.
-pub fn parse(raw: &Value, take_id: &str) -> Review {
-    let issues: Vec<String> = raw["issues"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|i| i.as_str())
-        .map(|i| i.split_whitespace().collect::<Vec<_>>().join(" "))
-        .filter(|i| !i.is_empty())
-        .map(|i| if i.chars().count() > 200 { i.chars().take(199).collect::<String>() + "…" } else { i })
-        .take(5)
-        .collect();
-    Review { take_id: take_id.to_owned(), ok: issues.is_empty() && raw["ok"].as_bool().unwrap_or(true), issues }
+/// Model output is untrusted: at most five short items per list; a frame is ok when nothing major was found.
+pub fn parse(raw: &Value) -> Review {
+    let list = |key: &str| -> Vec<String> {
+        raw[key]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|i| i.as_str())
+            .map(|i| i.split_whitespace().collect::<Vec<_>>().join(" "))
+            .filter(|i| !i.is_empty())
+            .map(|i| if i.chars().count() > 200 { i.chars().take(199).collect::<String>() + "…" } else { i })
+            .take(5)
+            .collect()
+    };
+    let issues = list("major");
+    Review { ok: issues.is_empty(), issues, notes: list("minor") }
+}
+
+/// The take to keep after an automatic fix: the newest new take that passed review. When none passed, the take
+/// selected before the fix stays: issue counts from a small vision model say nothing about which failing image
+/// looks better, and swapping one flawed frame for another made scenes worse.
+pub fn pick_after_fix<'a>(takes: &'a [Take], new_ids: &[String], before: Option<&'a str>) -> Option<&'a str> {
+    let passed = takes.iter().rev().find(|t| new_ids.contains(&t.id) && t.review.as_ref().is_some_and(|r| r.ok));
+    passed.map(|t| t.id.as_str()).or(before)
 }
 
 /// Standard base64 for Ollama's `images` field.
@@ -77,11 +97,32 @@ mod tests {
     }
 
     #[test]
-    fn parse_distrusts_ok_with_issues() {
-        let r = parse(&json!({ "ok": true, "issues": ["Thanh Sư xuất hiện hai lần", "  "] }), "S09-1");
+    fn only_major_issues_flag_a_frame() {
+        let r = parse(&json!({ "major": ["Thanh Sư xuất hiện hai lần", "  "], "minor": ["Mắt màu nâu"] }));
         assert!(!r.ok);
         assert_eq!(r.issues, ["Thanh Sư xuất hiện hai lần"]);
-        assert!(parse(&json!({ "ok": true, "issues": [] }), "t").ok);
-        assert!(!parse(&json!({ "ok": false, "issues": [] }), "t").ok);
+        assert_eq!(r.notes, ["Mắt màu nâu"]);
+        let minor_only = parse(&json!({ "major": [], "minor": ["Góc máy không phải cận cảnh"] }));
+        assert!(minor_only.ok);
+        assert!(parse(&json!("garbage")).ok);
+    }
+
+    #[test]
+    fn fix_keeps_the_old_take_unless_a_new_one_passes() {
+        let take = |id: &str, review: Option<(bool, usize)>| Take {
+            id: id.into(),
+            file: String::new(),
+            seed: 0,
+            created_at: 0,
+            review: review.map(|(ok, n)| Review { ok, issues: vec!["x".into(); n], notes: vec![] }),
+        };
+        let new = ["b".to_owned(), "c".to_owned(), "d".to_owned()];
+        let all_fail = [take("a", Some((false, 2))), take("b", Some((false, 1))), take("c", Some((false, 1))), take("d", Some((false, 3)))];
+        assert_eq!(pick_after_fix(&all_fail, &new, Some("a")), Some("a"));
+        let two_pass = [take("a", Some((false, 1))), take("b", Some((true, 0))), take("c", Some((false, 1))), take("d", Some((true, 0)))];
+        assert_eq!(pick_after_fix(&two_pass, &new, Some("a")), Some("d"));
+        // An old take that passed earlier is not a "new" winner; the selection before the fix stays.
+        let old_pass = [take("a", Some((true, 0))), take("b", Some((false, 1)))];
+        assert_eq!(pick_after_fix(&old_pass, &new, Some("b")), Some("b"));
     }
 }

@@ -50,6 +50,9 @@ pub struct Take {
     /// Unix time in milliseconds.
     #[ts(type = "number")]
     pub created_at: u64,
+    /// Automatic check of this image (shots only). Each take keeps its own, so switching takes never shows a stale one.
+    #[serde(default)]
+    pub review: Option<Review>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -79,19 +82,19 @@ pub struct Shot {
     pub motion: String,
     pub takes: Vec<Take>,
     pub selected_take: Option<String>,
-    /// Latest automatic check of a frame; it applies only while `take_id` is still the selected take.
-    #[serde(default)]
-    pub review: Option<Review>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/lib/bindings/")]
 pub struct Review {
-    pub take_id: String,
+    /// No major issue. Minor notes do not count against a frame.
     pub ok: bool,
-    /// Problems the vision model saw, in Vietnamese.
+    /// Major problems in Vietnamese: wrong creature, missing or doubled character, wrong main outfit, legible text.
     pub issues: Vec<String>,
+    /// Minor differences (pose, framing, shades, small details): shown for reference, never flagged.
+    #[serde(default)]
+    pub notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -304,7 +307,6 @@ impl Project {
                     motion: "slow push-in".into(),
                     takes: vec![],
                     selected_take: None,
-                    review: None,
                 };
                 self.shots.insert(at, shot);
             }
@@ -395,7 +397,6 @@ mod tests {
             motion: String::new(),
             takes: vec![],
             selected_take: None,
-            review: None,
         };
         Project {
             id: "p".into(),

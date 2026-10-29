@@ -25,11 +25,11 @@ export function JobTray({ navigate }: { navigate: Navigate }) {
   }, [byId]);
 
   if (active.length === 0 && recent.length === 0) {
-    return <p className="px-4 py-3 text-[12px] text-faint">Không có việc nào đang chạy.</p>;
+    return <p className="px-5 py-2 pb-4 text-[12px] text-faint">Không có việc nào đang chạy.</p>;
   }
 
   return (
-    <section aria-label="Hàng đợi" className="flex flex-col gap-3 px-3 py-3">
+    <section aria-label="Hàng đợi" className="flex flex-col gap-3.5 px-5 pt-2 pb-4">
       {[...active, ...recent].map((job) => (
         <JobRow key={job.id} job={job} navigate={navigate} />
       ))}

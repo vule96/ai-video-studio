@@ -63,6 +63,7 @@ pub fn run() {
             commands::project_delete,
             commands::project_music_set,
             commands::project_music_remove,
+            commands::project_video_delete,
             commands::job_enqueue,
             commands::jobs_list,
             commands::job_cancel,

@@ -28,6 +28,32 @@ const STAGES: readonly { id: Stage; label: string }[] = [
   { id: 'render', label: 'Dựng phim' },
 ];
 
+/** One line under each step: how far that step is, so the next thing to do is visible from any step. */
+function stageStatus(p: Project, stage: Stage): string {
+  switch (stage) {
+    case 'script':
+      return `${String(p.shots.length)} shot`;
+    case 'characters': {
+      const chosen = p.characters.filter((c) => c.selectedTake).length;
+      return p.characters.length === 0
+        ? 'Không có'
+        : `${String(chosen)}/${String(p.characters.length)} đã chọn`;
+    }
+    case 'frames': {
+      const drawn = p.shots.filter((s) => s.selectedTake).length;
+      const flagged = p.shots.filter(
+        (s) => s.takes.find((t) => t.id === s.selectedTake)?.review?.ok === false,
+      ).length;
+      return `${String(drawn)}/${String(p.shots.length)} đã vẽ${flagged > 0 ? `, ${String(flagged)} lỗi` : ''}`;
+    }
+    case 'render': {
+      if (!p.video) return 'Chưa dựng';
+      const s = Math.round(p.video.durationMs / 1000);
+      return `Đã dựng ${String(Math.floor(s / 60))}:${String(s % 60).padStart(2, '0')}`;
+    }
+  }
+}
+
 export function ProjectScreen({ id, navigate }: { id: string; navigate: Navigate }) {
   const project = useProject(id);
   const root = useProjectsRoot();
@@ -58,37 +84,52 @@ export function ProjectScreen({ id, navigate }: { id: string; navigate: Navigate
 
   return (
     <div className="flex min-h-full flex-col">
-      <header className="sticky top-0 z-10 flex flex-col gap-3 border-b border-line bg-desk/95 px-8 pt-6 backdrop-blur">
-        <div>
-          <h1 className="text-[22px] font-medium">{p.title}</h1>
-          <p className="text-[12px] text-faint">
-            {p.sourceKind === 'pdf' ? `Từ PDF: ${p.sourceLabel}` : 'Từ mô tả'},{' '}
-            {p.format === 'landscape' ? 'ngang 16:9' : 'dọc 9:16'}
-          </p>
+      <header className="sticky top-0 z-10 border-b border-line bg-desk/95 backdrop-blur">
+        <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-4 px-8 pt-6">
+          <div className="flex flex-col gap-1">
+            <h1 className="truncate text-[21px] leading-tight font-semibold">{p.title}</h1>
+            <p className="text-[13px] text-faint">
+              {p.sourceKind === 'pdf' ? `Từ PDF: ${p.sourceLabel}` : 'Từ mô tả'},{' '}
+              {p.format === 'landscape' ? 'ngang 16:9' : 'dọc 9:16'}
+            </p>
+          </div>
+          {/* The stages are the actual order of work, so they are numbered. */}
+          <nav aria-label="Các bước" className="-mb-px grid grid-cols-4">
+            {STAGES.map((s, i) => {
+              const current = stage === s.id;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  aria-current={current ? 'step' : undefined}
+                  onClick={() => {
+                    setStage(s.id);
+                  }}
+                  className={clsx(
+                    'flex items-center gap-3 border-b-2 py-3 pr-4 text-left',
+                    current ? 'border-marker' : 'border-transparent hover:border-edge',
+                  )}
+                >
+                  <span
+                    className={clsx(
+                      'flex size-6 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold tabular-nums',
+                      current ? 'bg-marker text-marker-ink' : 'bg-sheet text-dim',
+                    )}
+                  >
+                    {i + 1}
+                  </span>
+                  <span className="flex min-w-0 flex-col leading-tight">
+                    <span className={clsx('font-medium', current ? 'text-ink' : 'text-dim')}>{s.label}</span>
+                    <span className="truncate text-[12px] text-faint">{stageStatus(p, s.id)}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </nav>
         </div>
-        {/* The stages are the actual order of work, so they are numbered. */}
-        <nav aria-label="Các bước" className="-mb-px flex gap-6">
-          {STAGES.map((s, i) => (
-            <button
-              key={s.id}
-              type="button"
-              aria-current={stage === s.id ? 'step' : undefined}
-              onClick={() => {
-                setStage(s.id);
-              }}
-              className={clsx(
-                'flex items-center gap-2 border-b-2 pb-2.5',
-                stage === s.id ? 'border-marker text-ink' : 'border-transparent text-dim hover:text-ink',
-              )}
-            >
-              <span className="text-[12px] text-faint tabular-nums">{i + 1}</span>
-              {s.label}
-            </button>
-          ))}
-        </nav>
       </header>
 
-      <div className="flex-1 px-8 py-6">
+      <div className="mx-auto w-full max-w-[1360px] flex-1 px-8 pt-6 pb-12">
         {busy.has('storyboard') ? (
           <StoryboardPending projectId={p.id} />
         ) : stage === 'script' ? (

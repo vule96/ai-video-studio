@@ -50,6 +50,9 @@ export function busyTargets(jobs: Iterable<JobInfo>, projectId: string): Set<str
       case 'review':
         for (const id of spec.shotIds) out.add(`review:${id}`);
         break;
+      case 'fix':
+        for (const id of spec.shotIds) out.add(`shot:${id}`);
+        break;
     }
   }
   return out;

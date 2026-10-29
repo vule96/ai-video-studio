@@ -46,6 +46,17 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-tts.ps1   # macOS: ./sc
 
 TTS chạy bằng CPU (khoảng 0.6 lần thời gian thực) để GPU dành cho ComfyUI. Vào **Cài đặt** để xem mọi mục đã có dấu ✓ chưa.
 
+Hoặc mở tất cả bằng một lệnh: script kiểm tra từng dịch vụ, mở cái nào chưa chạy trong cửa sổ riêng, chờ sẵn sàng rồi chạy app.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-all.ps1                    # ComfyUI ở %USERPROFILE%\Downloads\ComfyUI_windows_portable
+powershell -ExecutionPolicy Bypass -File .\scripts\start-all.ps1 -ComfyDir "D:\ComfyUI_windows_portable" -NoApp
+```
+
+```bash
+./scripts/start-all.sh                       # macOS: ComfyUI Desktop; hoặc COMFY_DIR=~/ComfyUI ./scripts/start-all.sh
+```
+
 Build bộ cài: `npm run app:build`. Tauri chỉ build cho hệ điều hành đang chạy: bản Windows build trên Windows, bản macOS build trên Mac.
 
 ## Dùng
@@ -53,7 +64,7 @@ Build bộ cài: `npm run app:build`. Tauri chỉ build cho hệ điều hành �
 1. **Dự án mới**: gõ mô tả hoặc kéo file PDF vào (chọn khoảng trang nếu sách dài), chọn số shot, khung ngang hoặc dọc.
 2. **Kịch bản**: LLM viết xong thì sửa phong cách hình, tên, mô tả từng shot, lời dẫn. Thêm, xoá, đổi thứ tự shot bằng các nút trên mỗi shot.
 3. **Nhân vật**: tối đa 6 nhân vật, mỗi nhân vật sinh 3 phương án, bấm để khoanh ảnh ưng nhất. Ảnh được khoanh là ảnh tham chiếu. Mỗi shot có tối đa 3 nhân vật.
-4. **Khung hình**: vẽ các shot còn thiếu. Bấm vào một shot để sửa mô tả, vẽ lại, hoặc chọn lại một lần vẽ cũ. **Soát lỗi khung hình** cho một model nhìn ảnh (ví dụ `gemma3:12b`) kiểm tra từng khung: thiếu hoặc thừa nhân vật, vẽ trùng, có chữ, lỗi tay chân.
+4. **Khung hình**: vẽ các shot còn thiếu. Bấm vào một shot để sửa mô tả, vẽ lại, hoặc chọn lại một lần vẽ cũ. **Soát khung chưa soát** cho một model nhìn ảnh (ví dụ `gemma3:12b`) kiểm tra từng khung. Chỉ **lỗi nặng** mới đánh dấu ảnh: thiếu nhân vật, một nhân vật bị vẽ hai lần, sai loài, sai trang phục chính, có chữ, lỗi tay chân, sai vật chính của cảnh. Khác biệt nhỏ (dáng, góc máy, sắc màu, phụ kiện nhỏ) là **ghi chú**, không tính là lỗi. **Soát lại tất cả** chấm lại mọi khung, dùng khi app đổi cách soát. Mỗi ảnh giữ kết quả soát của riêng nó, nên soát lại chỉ tốn cho ảnh mới. **Tự sửa N cảnh lỗi** vẽ 3 ảnh mới cho mỗi cảnh lỗi, soát hết, và chỉ đổi sang ảnh mới khi ảnh đó đạt; không ảnh nào đạt thì giữ ảnh cũ.
 5. **Dựng phim**: chọn giọng đọc, nhạc nền (tuỳ chọn), có in phụ đề vào hình hay không, rồi bấm Dựng phim. Mỗi shot thành một đoạn dài bằng lời dẫn; máy quay theo gợi ý "chuyển động" (push-in, pull-out, pan, tilt, static, shake, kèm slow/fast). Nhạc tự nhỏ đi khi có lời dẫn, âm lượng chuẩn hoá về −14 LUFS như YouTube/TikTok. Ra file MP4 Full HD và phụ đề `.srt` cùng tên.
 
 Mọi việc nặng (LLM, vẽ ảnh) vào hàng đợi ở góc dưới bên trái và chạy lần lượt từng việc, vì card 16 GB không chứa nổi hai model cùng lúc. Có thể huỷ bất cứ lúc nào.
@@ -76,6 +87,8 @@ npm run bindings     # sinh lại type TS sau khi đổi struct Rust
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0.1                 | Dự án, Kịch bản, Nhân vật, Khung hình, Cài đặt, hàng đợi job                                                                                                                                            |
 | 0.2                 | Bước 4 Dựng phim: lời dẫn VieNeu-TTS, zoom/pan theo gợi ý camera, chuyển cảnh mờ, phụ đề .srt, MP4 bằng ffmpeg                                                                                          |
-| **0.2.1 (bản này)** | 6 nhân vật; góc máy đa dạng; nhạc nền tự nhỏ khi có lời; −14 LUFS; phụ đề in vào hình; tốc độ/rung máy; thêm/xoá/sắp xếp shot; soát lỗi khung hình bằng model nhìn ảnh                                  |
+| 0.2.1               | 6 nhân vật; góc máy đa dạng; nhạc nền tự nhỏ khi có lời; −14 LUFS; phụ đề in vào hình; tốc độ/rung máy; thêm/xoá/sắp xếp shot; soát lỗi khung hình bằng model nhìn ảnh                                  |
+| 0.2.2               | Tự sửa cảnh lỗi (vẽ nhiều lần, soát, chỉ đổi khi có ảnh đạt); soát chỉ ảnh mới; kết quả soát theo từng ảnh; sửa dải ảnh bị ép mất trong khung chi tiết                                                  |
+| **0.2.3 (bản này)** | Soát chia lỗi nặng (chặn ảnh) và ghi chú nhỏ (chỉ để tham khảo); nút Soát lại tất cả; giao diện mới: khung giữa 1360px, bảng bên cố định, nút chính màu mực, vàng chỉ đánh dấu lựa chọn                 |
 | 0.3: Chuyển động AI | Biến khung hình thành clip bằng Wan 2.2 image-to-video, chọn shot nào dùng clip AI, shot nào dùng zoom/pan                                                                                              |
 | Sau đó              | Whisper nghe lại lời dẫn; xuất cùng lúc 16:9 và 9:16; train LoRA cho nhân vật dùng lâu dài; preset phong cách; tiến độ từng bước vẽ (WebSocket ComfyUI); tự mở ComfyUI/Ollama; tải model ngay trong app |

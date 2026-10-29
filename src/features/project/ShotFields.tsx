@@ -80,7 +80,7 @@ export function ShotFields({ project, draft, onChange, compact = false }: Props)
 
       {project.characters.length > 0 && (
         <fieldset className="flex flex-col gap-1">
-          <legend className="mb-1 text-[13px] text-dim">
+          <legend className="mb-1.5 text-[12.5px] font-medium text-dim">
             Nhân vật trong khung <span className="text-faint">(tối đa {MAX_IN_SHOT})</span>
           </legend>
           <div className="flex flex-wrap gap-1.5">
@@ -113,7 +113,7 @@ export function ShotFields({ project, draft, onChange, compact = false }: Props)
           <TextArea
             id={id}
             rows={compact ? 3 : 4}
-            className="font-mono text-[13px]"
+            className="font-mono text-[12.5px]"
             value={draft.prompt}
             onChange={(e) => {
               set('prompt', e.target.value);
@@ -126,7 +126,7 @@ export function ShotFields({ project, draft, onChange, compact = false }: Props)
           <TextArea
             id={id}
             rows={2}
-            className="font-mono text-[13px]"
+            className="text-[13.5px]"
             value={draft.narration}
             onChange={(e) => {
               set('narration', e.target.value);

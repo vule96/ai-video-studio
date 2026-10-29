@@ -39,6 +39,7 @@ export const api = {
       headers: { 'project-id': id, 'file-name': encodeURIComponent(file.name) },
     }),
   projectMusicRemove: (id: string) => invoke<Project>('project_music_remove', { id }),
+  projectVideoDelete: (id: string) => invoke<Project>('project_video_delete', { id }),
   jobEnqueue: (spec: JobSpec) => invoke<JobInfo>('job_enqueue', { spec }),
   jobsList: () => invoke<JobInfo[]>('jobs_list'),
   jobCancel: (id: string) => invoke<null>('job_cancel', { id }),

@@ -32,11 +32,36 @@ const KEEP_FINISHED: usize = 30;
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 #[ts(export, export_to = "../../src/lib/bindings/")]
 pub enum JobSpec {
-    Storyboard { project_id: String, shot_count: u32 },
-    CharacterTakes { project_id: String, character_id: String, count: u32 },
-    ShotTakes { project_id: String, shot_ids: Vec<String> },
-    Render { project_id: String, voice: String, burn_subtitles: bool },
-    Review { project_id: String, shot_ids: Vec<String> },
+    Storyboard {
+        project_id: String,
+        shot_count: u32,
+    },
+    CharacterTakes {
+        project_id: String,
+        character_id: String,
+        count: u32,
+    },
+    ShotTakes {
+        project_id: String,
+        shot_ids: Vec<String>,
+    },
+    Render {
+        project_id: String,
+        voice: String,
+        burn_subtitles: bool,
+    },
+    /// `again`: also re-review frames that already have a review (after the review rules changed).
+    Review {
+        project_id: String,
+        shot_ids: Vec<String>,
+        again: bool,
+    },
+    /// Draws `attempts` new takes per shot, reviews them and switches only to one that passed.
+    Fix {
+        project_id: String,
+        shot_ids: Vec<String>,
+        attempts: u32,
+    },
 }
 
 impl JobSpec {
@@ -46,7 +71,8 @@ impl JobSpec {
             | Self::CharacterTakes { project_id, .. }
             | Self::ShotTakes { project_id, .. }
             | Self::Render { project_id, .. }
-            | Self::Review { project_id, .. } => project_id,
+            | Self::Review { project_id, .. }
+            | Self::Fix { project_id, .. } => project_id,
         }
     }
 
@@ -57,6 +83,7 @@ impl JobSpec {
             Self::ShotTakes { shot_ids, .. } => format!("Sinh khung hình {}", shot_ids.join(", ")),
             Self::Render { voice, .. } => format!("Dựng phim, giọng {voice}"),
             Self::Review { shot_ids, .. } => format!("Soát {} khung hình", shot_ids.len()),
+            Self::Fix { shot_ids, .. } => format!("Tự sửa {}", shot_ids.join(", ")),
         }
     }
 }
@@ -215,7 +242,8 @@ impl Jobs {
             JobSpec::Render { project_id, voice, burn_subtitles } => {
                 run_render(ctx, project_id, voice, *burn_subtitles, cancel, progress).await
             }
-            JobSpec::Review { project_id, shot_ids } => run_review(ctx, project_id, shot_ids, cancel, progress).await,
+            JobSpec::Review { project_id, shot_ids, again } => run_review(ctx, project_id, shot_ids, *again, cancel, progress).await,
+            JobSpec::Fix { project_id, shot_ids, attempts } => run_fix(ctx, project_id, shot_ids, *attempts, cancel, progress).await,
         }
     }
 
@@ -335,6 +363,23 @@ async fn run_shot_takes(
     cancel: &CancellationToken,
     progress: Progress<'_>,
 ) -> AppResult<()> {
+    let total = u32::try_from(shot_ids.len()).unwrap_or(u32::MAX);
+    draw_shots(ctx, project_id, shot_ids, 1, cancel, progress, (0, total)).await?;
+    progress(total, total, "Xong");
+    Ok(())
+}
+
+/// Draws `per_shot` new takes for each shot and returns `(shot id, take id)` for each. `steps` is `(first, total)`
+/// of the job's progress, so a longer job can report this part as its first steps.
+async fn draw_shots(
+    ctx: &Context,
+    project_id: &str,
+    shot_ids: &[String],
+    per_shot: u32,
+    cancel: &CancellationToken,
+    progress: Progress<'_>,
+    (first, total): (u32, u32),
+) -> AppResult<Vec<(String, String)>> {
     let settings = ctx.settings();
     let project = ctx.store.get(project_id).await?;
     let project_dir = ctx.store.dir(project_id)?;
@@ -360,9 +405,9 @@ async fn run_shot_takes(
     let comfy = Comfy::connect(ctx.http.clone(), &settings.comfy_url).await?;
     let mut uploaded: HashMap<String, String> = HashMap::new();
     let (width, height) = project.format.shot_size();
-    let total = u32::try_from(shots.len()).unwrap_or(u32::MAX);
-    for (i, shot) in (0u32..).zip(&shots) {
-        progress(i, total, &format!("Shot {} ({}/{total})", shot.id, i + 1));
+    let mut drawn = Vec::new();
+    let mut step = first;
+    for shot in &shots {
         let mut present = Vec::new();
         let mut references = Vec::new();
         for id in &shot.characters {
@@ -375,26 +420,31 @@ async fn run_shot_takes(
             references.push(uploaded[&take.id].clone());
         }
         let prompt = shot_prompt(&project.style, shot, &present);
-        let seed = random_seed();
-        let req = ImageRequest { prompt: &prompt, width, height, seed, references: &references, filename_prefix: "aivs/shot" };
-        let bytes = comfy.run(&image_graph(&settings.image_model, &req), cancel).await?;
-        save_take(ctx, project_id, TakeTarget::Shot(shot.id.clone()), "shots", seed, &bytes).await?;
+        for k in 0..per_shot {
+            let attempt = if per_shot > 1 { format!(", lần {}/{per_shot}", k + 1) } else { String::new() };
+            progress(step, total, &format!("Vẽ {}{attempt}", shot.id));
+            let seed = random_seed();
+            let req = ImageRequest { prompt: &prompt, width, height, seed, references: &references, filename_prefix: "aivs/shot" };
+            let bytes = comfy.run(&image_graph(&settings.image_model, &req), cancel).await?;
+            let take_id = save_take(ctx, project_id, TakeTarget::Shot(shot.id.clone()), "shots", seed, &bytes).await?;
+            drawn.push((shot.id.clone(), take_id));
+            step += 1;
+        }
     }
-    progress(total, total, "Xong");
-    Ok(())
+    Ok(drawn)
 }
 
-async fn save_take(ctx: &Context, project_id: &str, target: TakeTarget, folder: &str, seed: u32, bytes: &[u8]) -> AppResult<()> {
+async fn save_take(ctx: &Context, project_id: &str, target: TakeTarget, folder: &str, seed: u32, bytes: &[u8]) -> AppResult<String> {
     let owner = match &target {
         TakeTarget::Character(id) | TakeTarget::Shot(id) => id.clone(),
     };
     let take_id = format!("{owner}-{seed}");
     let file = format!("{folder}/{take_id}.png");
     ctx.store.write_file(project_id, &file, bytes).await?;
-    let take = Take { id: take_id, file, seed, created_at: now_ms() };
+    let take = Take { id: take_id.clone(), file, seed, created_at: now_ms(), review: None };
     ctx.store.update(project_id, |p| p.push_take(&target, take)).await?;
     ctx.sink.project_changed(project_id);
-    Ok(())
+    Ok(take_id)
 }
 
 /// Narrates every shot with VieNeu-TTS, turns each frame into a clip with a camera move, joins them, then mixes
@@ -515,14 +565,81 @@ async fn run_render(
     Ok(())
 }
 
-/// Shows each selected frame to a vision model with the cast and description it was drawn from.
+/// Reviews the selected frame of each shot. Frames reviewed before are skipped: a review belongs to its image, so
+/// re-running after fixing a few shots only looks at the new ones.
 async fn run_review(
     ctx: &Context,
     project_id: &str,
     shot_ids: &[String],
+    again: bool,
     cancel: &CancellationToken,
     progress: Progress<'_>,
 ) -> AppResult<()> {
+    let project = ctx.store.get(project_id).await?;
+    let items: Vec<(String, String)> = project
+        .shots
+        .iter()
+        .filter(|s| shot_ids.contains(&s.id))
+        .filter_map(|s| {
+            selected(&s.takes, s.selected_take.as_ref()).filter(|t| again || t.review.is_none()).map(|t| (s.id.clone(), t.id.clone()))
+        })
+        .collect();
+    let total = u32::try_from(items.len()).unwrap_or(u32::MAX);
+    review_takes(ctx, project_id, &items, cancel, progress, (0, total)).await?;
+    progress(total, total, "Xong");
+    Ok(())
+}
+
+/// Redraws flagged shots several times in one go, reviews every new take, and switches a shot only to a new take
+/// that passed; otherwise the shot keeps the take it had.
+/// All drawing happens before all reviewing, so the GPU switches between ComfyUI and Ollama only once.
+async fn run_fix(
+    ctx: &Context,
+    project_id: &str,
+    shot_ids: &[String],
+    attempts: u32,
+    cancel: &CancellationToken,
+    progress: Progress<'_>,
+) -> AppResult<()> {
+    let attempts = attempts.clamp(1, 4);
+    let project = ctx.store.get(project_id).await?;
+    let before: HashMap<&str, Option<String>> =
+        project.shots.iter().filter(|s| shot_ids.contains(&s.id)).map(|s| (s.id.as_str(), s.selected_take.clone())).collect();
+    let n = u32::try_from(shot_ids.len()).unwrap_or(u32::MAX).saturating_mul(attempts);
+    let total = n.saturating_mul(2) + 1;
+    let drawn = draw_shots(ctx, project_id, shot_ids, attempts, cancel, progress, (0, total)).await?;
+    review_takes(ctx, project_id, &drawn, cancel, progress, (n, total)).await?;
+    progress(total - 1, total, "Chọn ảnh đạt");
+    ctx.store
+        .update(project_id, |p| {
+            for id in shot_ids {
+                let new_ids: Vec<String> = drawn.iter().filter(|(s, _)| s == id).map(|(_, t)| t.clone()).collect();
+                let old = before.get(id.as_str()).cloned().flatten();
+                if let Some(shot) = p.shot_mut(id) {
+                    shot.selected_take = review::pick_after_fix(&shot.takes, &new_ids, old.as_deref()).map(str::to_owned);
+                }
+            }
+            Ok(())
+        })
+        .await?;
+    ctx.sink.project_changed(project_id);
+    progress(total, total, "Xong");
+    Ok(())
+}
+
+/// Shows each `(shot id, take id)` image to the vision model with the cast and description it was drawn from,
+/// and stores the result on that take.
+async fn review_takes(
+    ctx: &Context,
+    project_id: &str,
+    items: &[(String, String)],
+    cancel: &CancellationToken,
+    progress: Progress<'_>,
+    (first, total): (u32, u32),
+) -> AppResult<()> {
+    if items.is_empty() {
+        return Ok(());
+    }
     let settings = ctx.settings();
     let model = settings.vision_model().to_owned();
     // The vision model needs the GPU that ComfyUI may still be holding.
@@ -533,25 +650,21 @@ async fn run_review(
     let dir = ctx.store.dir(project_id)?;
     let llm = Ollama::new(ctx.http.clone(), &settings.ollama_url);
     let schema = review::schema();
-    let shots: Vec<_> = project.shots.iter().filter(|s| shot_ids.contains(&s.id)).collect();
-    let total = u32::try_from(shots.len()).unwrap_or(u32::MAX);
     let result = async {
-        for (i, shot) in (0u32..).zip(&shots) {
-            let Some(take) = selected(&shot.takes, shot.selected_take.as_ref()) else { continue };
-            progress(i, total, &format!("Soát {} ({}/{total})", shot.id, i + 1));
+        for (step, (shot_id, take_id)) in (first..).zip(items) {
+            let Some(shot) = project.shots.iter().find(|s| &s.id == shot_id) else { continue };
+            let Some(take) = shot.takes.iter().find(|t| &t.id == take_id) else { continue };
+            progress(step, total, &format!("Soát {shot_id}"));
             let cast: Vec<&Character> = shot.characters.iter().filter_map(|id| project.characters.iter().find(|c| &c.id == id)).collect();
-            let image = review::base64(&tokio::fs::read(dir.join(&take.file)).await?);
+            let images = [review::base64(&tokio::fs::read(dir.join(&take.file)).await?)];
             let user = review::user_prompt(shot, &cast);
-            let images = [image];
             let prompt = Prompt { images: &images, schema: Some(&schema), keep_loaded: true, ..Prompt::new(review::SYSTEM_PROMPT, &user) };
-            let raw = llm.chat_json(&model, &prompt, cancel).await?;
-            let result = review::parse(&raw, &take.id);
-            let shot_id = shot.id.clone();
+            let found = review::parse(&llm.chat_json(&model, &prompt, cancel).await?);
             ctx.store
                 .update(project_id, |p| {
-                    // The shot may have been deleted meanwhile; then there is nothing to annotate.
-                    if let Some(s) = p.shot_mut(&shot_id) {
-                        s.review = Some(result);
+                    // The shot or take may have been deleted meanwhile; then there is nothing to annotate.
+                    if let Some(t) = p.shot_mut(shot_id).and_then(|s| s.takes.iter_mut().find(|t| &t.id == take_id)) {
+                        t.review = Some(found);
                     }
                     Ok(())
                 })
@@ -570,7 +683,5 @@ async fn run_review(
             ),
         ),
         other => other,
-    })?;
-    progress(total, total, "Xong");
-    Ok(())
+    })
 }

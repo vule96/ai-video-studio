@@ -178,7 +178,7 @@ mod tests {
         })
         .await
         .unwrap();
-        let take = Take { id: "toru-1".into(), file: "characters/toru-1.png".into(), seed: 1, created_at: 0 };
+        let take = Take { id: "toru-1".into(), file: "characters/toru-1.png".into(), seed: 1, created_at: 0, review: None };
         let (p2, ()) = s.update(&p.id, |p| p.push_take(&TakeTarget::Character("toru".into()), take)).await.unwrap();
         assert_eq!(p2.characters[0].selected_take.as_deref(), Some("toru-1"));
 
@@ -219,7 +219,7 @@ mod tests {
                 let s = Arc::clone(&s);
                 let id = p.id.clone();
                 tokio::spawn(async move {
-                    let take = Take { id: format!("t{i}"), file: format!("characters/t{i}.png"), seed: i, created_at: 0 };
+                    let take = Take { id: format!("t{i}"), file: format!("characters/t{i}.png"), seed: i, created_at: 0, review: None };
                     s.update(&id, |p| p.push_take(&TakeTarget::Character("a".into()), take)).await.unwrap();
                 })
             })

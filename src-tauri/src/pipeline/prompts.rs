@@ -51,7 +51,8 @@ pub fn shot_prompt(style: &str, shot: &Shot, present: &[&Character]) -> String {
         ));
     }
     parts.push(format!("{}. {}", capitalize(&shot.framing), shot.prompt));
-    parts.push("Cinematic composition, no text, no captions, no watermark.".into());
+    // Gates, banners and scrolls invite FLUX to scribble fake lettering; asking for blank ones avoids most of it.
+    parts.push("Cinematic composition. Any signs, plaques, banners and scrolls are blank. No text, no captions, no watermark.".into());
     parts.join(" ")
 }
 
@@ -79,7 +80,6 @@ mod tests {
             motion: String::new(),
             takes: vec![],
             selected_take: None,
-            review: None,
         }
     }
 

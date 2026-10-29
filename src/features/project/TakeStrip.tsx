@@ -1,4 +1,5 @@
 import clsx from 'clsx';
+import { Check, TriangleAlert } from 'lucide-react';
 
 import type { Take } from '@/lib/bindings/Take';
 import { projectFileUrl } from '@/lib/ipc';
@@ -32,7 +33,12 @@ export function TakeStrip({
 }: Props) {
   if (takes.length === 0) return null;
   return (
-    <div role="radiogroup" aria-label={label} className="flex gap-3 overflow-x-auto pt-1.5 pb-2 pl-1.5">
+    // shrink-0: in a scrolling column (the shot inspector) an overflow box would otherwise be squeezed to nothing.
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className="flex shrink-0 gap-3 overflow-x-auto pt-1.5 pb-2 pl-1.5"
+    >
       {takes.map((t, i) => {
         const chosen = t.id === selected;
         return (
@@ -41,8 +47,8 @@ export function TakeStrip({
             type="button"
             role="radio"
             aria-checked={chosen}
-            aria-label={`Ảnh ${i + 1}`}
-            title={`Seed ${t.seed}`}
+            aria-label={`Ảnh ${String(i + 1)}${t.review ? (t.review.ok ? ', soát: ổn' : `, soát: ${String(t.review.issues.length)} lỗi`) : ''}`}
+            title={t.review && !t.review.ok ? t.review.issues.join('\n') : `Seed ${String(t.seed)}`}
             onClick={() => {
               onSelect(t.id);
             }}
@@ -55,6 +61,18 @@ export function TakeStrip({
               loading="lazy"
               className={clsx('size-full rounded object-cover', !chosen && 'opacity-60 hover:opacity-100')}
             />
+            {t.review && (
+              <span
+                className={clsx(
+                  'absolute top-1 right-1 flex items-center gap-0.5 rounded bg-rail/90 px-1 text-[11px]',
+                  t.review.ok ? 'text-ok' : 'text-alert',
+                )}
+                aria-hidden
+              >
+                {t.review.ok ? <Check size={11} /> : <TriangleAlert size={11} />}
+                {!t.review.ok && t.review.issues.length}
+              </span>
+            )}
             {chosen && <CircleMark />}
           </button>
         );

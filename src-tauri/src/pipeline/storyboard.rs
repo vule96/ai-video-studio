@@ -102,7 +102,6 @@ pub fn normalize(raw: &Value) -> AppResult<Draft> {
                 motion: clip(str_of(&s["motion"]), 120),
                 takes: vec![],
                 selected_take: None,
-                review: None,
             }
         })
         .collect();
@@ -168,7 +167,9 @@ Output a storyboard with:
 - "characters": every named character who appears in more than one shot, and every character the brief describes
   (max 6). id = short lowercase ascii slug. "description" in ENGLISH: age, gender, ethnicity (or species), build,
   hair/fur (style + color), face, and ONE fixed outfit with colors. Be specific: this exact description is reused for
-  every image, so the character must look the same everywhere.
+  every image, so the character must look the same everywhere. Translate figurative descriptions from the source into
+  literal features ("head like a leopard, tiger whiskers" becomes "broad square face, bristly spreading black beard"):
+  the image model draws comparisons literally. Name animals only for characters that really are animals.
 - "shots": exactly {n} shots in story order. For each:
   - "title": a few words in {language}.
   - "characters": ids of ALL recurring characters visible in the frame (0-2 is best, never more than 3).

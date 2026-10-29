@@ -97,6 +97,26 @@ pub async fn project_music_set(state: State<'_, AppState>, request: tauri::ipc::
     Ok(project)
 }
 
+/// Removes the rendered video and its subtitles; narration audio stays cached for the next render.
+#[tauri::command]
+pub async fn project_video_delete(state: State<'_, AppState>, id: String) -> AppResult<Project> {
+    if state.jobs.is_busy(&id) {
+        return Err(AppError::invalid("Dự án đang có job chạy. Chờ xong hoặc huỷ job trước khi xoá video."));
+    }
+    let (project, old) = state.store.update(&id, |p| Ok(p.video.take())).await?;
+    if let Some(old) = old {
+        let dir = state.store.dir(&id)?;
+        for file in [old.file, old.subtitles] {
+            // A file already gone is what we wanted anyway.
+            match tokio::fs::remove_file(dir.join(file)).await {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+                _ => {}
+            }
+        }
+    }
+    Ok(project)
+}
+
 #[tauri::command]
 pub async fn project_music_remove(state: State<'_, AppState>, id: String) -> AppResult<Project> {
     let (project, old) = state.store.update(&id, |p| Ok(p.music.take())).await?;

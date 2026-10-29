@@ -8,25 +8,30 @@
 @import '@fontsource/ibm-plex-mono/500.css';
 
 /*
- * A neutral graphite surround, like an editing suite: generated images are judged against
- * grey that does not tint them. The one accent is the yellow of a china marker, used only
- * for what the user chose (the "circled take") and the main action.
+ * Layout: every screen is one centred frame (max 1360px) with a header row (title left, actions right)
+ * and a body that splits into a working column and a fixed side column, so edges line up from screen to screen.
+ *
+ * Colour: a neutral graphite surround, like an editing suite, so generated images are judged against grey that
+ * does not tint them. Actions are drawn in ink (light on dark), never in colour. The china-marker yellow means
+ * one thing only: what the user picked (the circled take, the current step, a checked option).
  */
 @theme {
   --font-sans: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', Consolas, monospace;
 
-  --color-rail: #1e1f22;
-  --color-desk: #2a2c30;
-  --color-sheet: #33363b;
-  --color-line: #4a4e55;
-  --color-ink: #e6e7e9;
-  --color-dim: #a0a4ab;
-  --color-faint: #6f747c;
+  --color-rail: #1c1d20;
+  --color-desk: #26272b;
+  --color-sheet: #2f3135;
+  --color-well: #1f2024;
+  --color-line: #3a3d43;
+  --color-edge: #4c5058;
+  --color-ink: #ecebe8;
+  --color-dim: #aaacb0;
+  --color-faint: #878b91;
   --color-marker: #f2c230;
-  --color-marker-ink: #1e1f22;
-  --color-alert: #ef7d6d;
-  --color-ok: #7cc79a;
+  --color-marker-ink: #1c1d20;
+  --color-alert: #f08a7a;
+  --color-ok: #82cba0;
 }
 
 @layer base {
@@ -37,7 +42,7 @@
   }
 
   body {
-    @apply bg-desk font-sans text-[14px] leading-[1.5] text-ink antialiased;
+    @apply bg-desk font-sans text-[14px] leading-[1.55] text-ink antialiased;
   }
 
   :focus-visible {

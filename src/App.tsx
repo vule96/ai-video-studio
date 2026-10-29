@@ -1,4 +1,5 @@
 import clsx from 'clsx';
+import { Clapperboard, Settings } from 'lucide-react';
 import { useState } from 'react';
 
 import { JobTray } from './features/jobs/JobTray';
@@ -14,7 +15,7 @@ export function App() {
   const [route, navigate] = useState<Route>({ name: 'projects' });
 
   return (
-    <div className="grid h-full grid-cols-[224px_1fr]">
+    <div className="grid h-full grid-cols-[216px_1fr]">
       <Sidebar route={route} navigate={navigate} />
       <main className="min-w-0 overflow-y-auto">
         <Screen route={route} navigate={navigate} />
@@ -39,36 +40,40 @@ function Screen({ route, navigate }: { route: Route; navigate: Navigate }) {
 
 function Sidebar({ route, navigate }: { route: Route; navigate: Navigate }) {
   const items = [
-    { label: 'Dự án', target: { name: 'projects' }, active: route.name !== 'settings' },
-    { label: 'Cài đặt', target: { name: 'settings' }, active: route.name === 'settings' },
+    { label: 'Dự án', icon: Clapperboard, target: { name: 'projects' }, active: route.name !== 'settings' },
+    { label: 'Cài đặt', icon: Settings, target: { name: 'settings' }, active: route.name === 'settings' },
   ] as const;
 
   return (
     <aside className="flex min-h-0 flex-col border-r border-line bg-rail">
-      <div className="flex items-center gap-2.5 px-4 pt-5 pb-6">
-        <img src="/icon.png" alt="" className="size-7" />
-        <span className="font-medium">AI Video Studio</span>
+      <div className="flex items-center gap-2.5 px-5 pt-6 pb-7">
+        <img src="/icon.png" alt="" className="size-6" />
+        <span className="text-[14px] font-semibold">AI Video Studio</span>
       </div>
-      <nav className="flex flex-col gap-0.5 px-2" aria-label="Chính">
-        {items.map((item) => (
+      <nav className="flex flex-col gap-0.5 px-3" aria-label="Chính">
+        {items.map(({ label, icon: Icon, target, active }) => (
           <button
-            key={item.label}
+            key={label}
             type="button"
-            aria-current={item.active ? 'page' : undefined}
+            aria-current={active ? 'page' : undefined}
             onClick={() => {
-              navigate(item.target);
+              navigate(target);
             }}
             className={clsx(
-              'rounded-md px-3 py-1.5 text-left',
-              item.active ? 'bg-desk text-ink' : 'text-dim hover:bg-desk/60 hover:text-ink',
+              'flex items-center gap-2.5 rounded px-2.5 py-1.5 text-left',
+              active ? 'bg-sheet text-ink' : 'text-dim hover:bg-sheet/60 hover:text-ink',
             )}
           >
-            {item.label}
+            <Icon size={16} aria-hidden className={active ? 'text-ink' : 'text-faint'} />
+            {label}
           </button>
         ))}
       </nav>
-      <div className="mt-auto min-h-0 overflow-y-auto border-t border-line">
-        <JobTray navigate={navigate} />
+      <div className="mt-auto flex min-h-0 flex-col border-t border-line">
+        <p className="px-5 pt-4 text-[12px] font-medium text-faint">Hàng đợi</p>
+        <div className="min-h-0 overflow-y-auto">
+          <JobTray navigate={navigate} />
+        </div>
       </div>
     </aside>
   );

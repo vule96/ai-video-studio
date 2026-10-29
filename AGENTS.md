@@ -56,7 +56,7 @@ Luồng dữ liệu: UI gọi command → command ghi store hoặc đẩy job �
 - **Webview không có quyền đọc file**: chỉ `core:default`. Ảnh hiển thị qua asset protocol, scope giới hạn trong thư mục dự án.
 - Không `unwrap()`/`expect()` ngoài test và `main`.
 - TS: strict tối đa (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`…), ESLint strictTypeChecked, Prettier, import sort.
-- Giao diện: nền graphite trung tính (ảnh không bị ám màu khi duyệt), một màu nhấn vàng "bút sáp" chỉ dùng cho lựa chọn của người dùng và nút chính. Token màu ở `src/app.css`.
+- Giao diện: nền graphite trung tính (ảnh không bị ám màu khi duyệt), màu vàng "bút sáp" chỉ đánh dấu lựa chọn của người dùng (shot đang mở, ảnh đã chọn, bước hiện tại); nút chính màu mực. Mỗi màn hình là một khung giữa 1360px (`Page`), nhóm trường dùng `Panel`, hàng hành động dùng `Toolbar` trong `src/ui.tsx`. Token màu ở `src/app.css`.
 
 ## Ponytail
 

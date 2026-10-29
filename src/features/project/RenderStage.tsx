@@ -6,7 +6,7 @@ import type { Project } from '@/lib/bindings/Project';
 import { api, errorMessage, projectFileUrl } from '@/lib/ipc';
 import { isActive, useJobs } from '@/lib/jobs';
 import { keys, useEnqueue, useHealth } from '@/lib/queries';
-import { Button, ErrorText, Field, Input, Progress, Select } from '@/ui';
+import { Button, Checkbox, ErrorText, Field, Input, Panel, Progress, Select } from '@/ui';
 
 import { currentReview } from './FramesStage';
 import type { StageProps } from './ProjectScreen';
@@ -40,151 +40,203 @@ export function RenderStage({ project, root, busy }: StageProps) {
   const aspect = project.format === 'landscape' ? '16 / 9' : '9 / 16';
   const video = project.video;
 
+  const ready = missing.length === 0 && voice.trim() !== '';
+
   return (
-    <div className="flex gap-8">
-      <div className="min-w-0 flex-1">
+    <div className="grid grid-cols-[minmax(0,1fr)_360px] items-start gap-8">
+      <div className="flex min-w-0 flex-col gap-3">
         {video ? (
-          <div className="flex flex-col gap-2">
+          <>
             {/* key: a new render is a new file, so the player reloads instead of keeping the old one. */}
             <video
               key={video.file}
               controls
               preload="metadata"
               src={projectFileUrl(root, project.id, video.file)}
-              className="w-full rounded-sm border border-line bg-rail"
-              style={{ aspectRatio: aspect, maxHeight: 'calc(100vh - 14rem)' }}
+              className="mx-auto w-full rounded bg-black ring-1 ring-line"
+              style={{ aspectRatio: aspect, maxHeight: 'calc(100vh - 260px)' }}
             />
-            <p className="text-[12px] text-faint">
-              {formatDuration(video.durationMs)}, giọng {video.voice}
-              {video.burnedSubtitles ? ', phụ đề in trong hình' : ''}. File:{' '}
-              <span className="font-mono select-all">
-                {[root, project.id, video.file].join(root.includes('\\') ? '\\' : '/')}
-              </span>{' '}
-              (phụ đề .srt cùng tên)
-            </p>
-          </div>
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="flex min-w-0 flex-col gap-0.5 text-[13px]">
+                <p>
+                  <span className="font-semibold tabular-nums">{formatDuration(video.durationMs)}</span>
+                  <span className="text-dim">
+                    {' '}
+                    · giọng {video.voice}
+                    {video.burnedSubtitles ? ' · phụ đề in trong hình' : ''}
+                  </span>
+                </p>
+                <p className="font-mono text-[12px] break-all text-faint select-all">
+                  {[root, project.id, video.file].join(root.includes('\\') ? '\\' : '/')}
+                </p>
+                <p className="text-[12px] text-faint">Phụ đề .srt nằm cùng thư mục, cùng tên.</p>
+              </div>
+              <DeleteVideo projectId={project.id} disabled={rendering} />
+            </div>
+          </>
         ) : (
           <div
-            className="flex w-full items-center justify-center rounded-sm border border-dashed border-line p-6 text-center text-dim"
-            style={{ aspectRatio: aspect, maxHeight: 'calc(100vh - 14rem)' }}
+            className="flex w-full items-center justify-center rounded border border-dashed border-edge p-8 text-center text-dim"
+            style={{ aspectRatio: aspect, maxHeight: 'calc(100vh - 260px)' }}
           >
-            Chưa dựng. Phim gồm các khung hình đã chọn, chuyển động theo gợi ý camera của từng shot, đọc lời
-            dẫn bằng VieNeu-TTS.
+            <p className="max-w-md">
+              Chưa dựng. Phim gồm các khung hình đã chọn, chuyển động theo gợi ý máy quay của từng shot, đọc
+              lời dẫn bằng VieNeu-TTS.
+            </p>
           </div>
         )}
       </div>
 
-      <aside className="flex w-[320px] shrink-0 flex-col gap-4 self-start">
-        <Field
-          label="Giọng đọc"
-          hint={
-            voices.length > 0
-              ? 'Lời dẫn của mọi shot đọc bằng giọng này.'
-              : 'Chưa kết nối VieNeu-TTS, gõ tên giọng.'
-          }
-        >
-          {(id) =>
-            voices.length > 0 ? (
-              <Select
-                id={id}
-                value={voice}
-                onChange={(e) => {
-                  setVoice(e.target.value);
-                }}
-              >
-                {!voices.some((v) => v.id === voice) && <option value={voice}>{voice} (không có)</option>}
-                {voices.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.id}
-                    {v.description && `, ${v.description}`}
-                  </option>
-                ))}
-              </Select>
-            ) : (
-              <Input
-                id={id}
-                value={voice}
-                onChange={(e) => {
-                  setVoice(e.target.value);
-                }}
-              />
-            )
-          }
-        </Field>
-
-        <MusicField project={project} />
-
-        <label className="flex items-start gap-2 text-[13px]">
-          <input
+      <aside className="sticky top-[176px] flex flex-col gap-4">
+        <Panel title="Âm thanh">
+          <Field
+            label="Giọng đọc"
+            hint={voices.length > 0 ? undefined : 'Chưa kết nối VieNeu-TTS, gõ tên giọng.'}
+          >
+            {(id) =>
+              voices.length > 0 ? (
+                <Select
+                  id={id}
+                  value={voice}
+                  onChange={(e) => {
+                    setVoice(e.target.value);
+                  }}
+                >
+                  {!voices.some((v) => v.id === voice) && <option value={voice}>{voice} (không có)</option>}
+                  {voices.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.id}
+                      {v.description && `, ${v.description}`}
+                    </option>
+                  ))}
+                </Select>
+              ) : (
+                <Input
+                  id={id}
+                  value={voice}
+                  onChange={(e) => {
+                    setVoice(e.target.value);
+                  }}
+                />
+              )
+            }
+          </Field>
+          <MusicField project={project} />
+          <Checkbox
             id="burn-subtitles"
-            type="checkbox"
-            className="mt-0.5 accent-marker"
             checked={burn}
-            onChange={(e) => {
-              setBurn(e.target.checked);
-            }}
+            onChange={setBurn}
+            label="In phụ đề vào hình"
+            hint="Nên bật cho TikTok, Reels, Shorts. File .srt riêng luôn có."
           />
-          <span>
-            In phụ đề vào hình
-            <span className="block text-[12px] text-faint">
-              Nên bật cho TikTok, Reels, Shorts. File .srt riêng luôn có.
-            </span>
+        </Panel>
+
+        <Panel title="Kiểm tra trước khi dựng">
+          <ul className="flex flex-col gap-2 text-[13px]">
+            <Item ok={missing.length === 0}>
+              {missing.length === 0
+                ? `Đủ ${String(project.shots.length)} khung hình`
+                : `Shot ${missing.join(', ')} chưa có khung hình`}
+            </Item>
+            {flagged.length > 0 && (
+              <Item ok={false} hint="Xem ở bước Khung hình. Vẫn dựng được nếu bạn thấy ổn.">
+                {`${flagged.map((s) => s.id).join(', ')} có lỗi nặng`}
+              </Item>
+            )}
+            {silent > 0 && (
+              <Item ok>{`${String(silent)} shot không có lời dẫn, giữ 3 giây không tiếng`}</Item>
+            )}
+            {services.map((c) => (
+              <Item key={c.name} ok={c.ok} hint={c.hint}>
+                {c.name}
+              </Item>
+            ))}
+          </ul>
+
+          {enqueue.error && <ErrorText>{errorMessage(enqueue.error)}</ErrorText>}
+          {job?.status === 'failed' && job.error && <ErrorText>{job.error}</ErrorText>}
+
+          {rendering && job && isActive(job) ? (
+            <div className="flex flex-col gap-2">
+              <Progress done={job.done} total={job.total} />
+              <p className="text-[13px] text-dim">
+                {job.status === 'queued' ? 'Đang chờ đến lượt…' : job.message}
+              </p>
+            </div>
+          ) : (
+            <Button
+              variant="primary"
+              className="w-full"
+              disabled={!ready || enqueue.isPending}
+              onClick={() => {
+                enqueue.mutate({
+                  type: 'render',
+                  projectId: project.id,
+                  voice: voice.trim(),
+                  burnSubtitles: burn,
+                });
+              }}
+            >
+              {video ? 'Dựng lại' : 'Dựng phim'}
+            </Button>
+          )}
+          <p className="text-[12px] text-faint">
+            Lời dẫn đã đọc được giữ lại: dựng lại sau khi chỉ sửa ảnh hay chuyển động thì không phải chờ đọc
+            lại.
+          </p>
+        </Panel>
+      </aside>
+    </div>
+  );
+}
+
+/** Deletes the rendered file after an inline confirm; narration stays cached so a re-render is quick. */
+function DeleteVideo({ projectId, disabled }: { projectId: string; disabled: boolean }) {
+  const qc = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
+  const remove = useMutation({
+    mutationFn: () => api.projectVideoDelete(projectId),
+    onSuccess: (p) => {
+      qc.setQueryData(keys.project(p.id), p);
+      setConfirming(false);
+    },
+  });
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-2 text-[13px]">
+      {confirming ? (
+        <>
+          <span className="text-dim">
+            Xoá file video và phụ đề? Lời dẫn đã đọc vẫn giữ để dựng lại nhanh.
           </span>
-        </label>
-
-        <ul className="flex flex-col gap-2 text-[13px]">
-          <Item ok={missing.length === 0}>
-            {missing.length === 0
-              ? `Đủ ${String(project.shots.length)} khung hình`
-              : `Shot ${missing.join(', ')} chưa có khung hình`}
-          </Item>
-          {flagged.length > 0 && (
-            <Item ok={false} hint="Xem chi tiết ở bước Khung hình. Vẫn dựng được nếu bạn thấy ổn.">
-              {`Soát lỗi: ${flagged.map((s) => s.id).join(', ')} có cảnh báo`}
-            </Item>
-          )}
-          {silent > 0 && (
-            <Item ok>{`${String(silent)} shot không có lời dẫn, sẽ giữ 3 giây không tiếng`}</Item>
-          )}
-          {services.map((c) => (
-            <Item key={c.name} ok={c.ok} hint={c.hint}>
-              {c.name}
-            </Item>
-          ))}
-        </ul>
-
-        {enqueue.error && <ErrorText>{errorMessage(enqueue.error)}</ErrorText>}
-        {job?.status === 'failed' && job.error && <ErrorText>{job.error}</ErrorText>}
-
-        {rendering && job && isActive(job) ? (
-          <div className="flex flex-col gap-2">
-            <Progress done={job.done} total={job.total} />
-            <p className="text-[13px] text-dim">
-              {job.status === 'queued' ? 'Đang chờ đến lượt…' : job.message}
-            </p>
-          </div>
-        ) : (
           <Button
-            variant="primary"
-            className="self-start"
-            disabled={missing.length === 0 ? enqueue.isPending || voice.trim() === '' : true}
+            variant="danger"
+            disabled={remove.isPending}
             onClick={() => {
-              enqueue.mutate({
-                type: 'render',
-                projectId: project.id,
-                voice: voice.trim(),
-                burnSubtitles: burn,
-              });
+              remove.mutate();
             }}
           >
-            {video ? 'Dựng lại' : 'Dựng phim'}
+            Xoá video
           </Button>
-        )}
-        <p className="text-[12px] text-faint">
-          Lời dẫn đã đọc được giữ lại: dựng lại sau khi chỉ sửa ảnh hay chuyển động thì không phải chờ đọc
-          lại.
-        </p>
-      </aside>
+          <Button
+            onClick={() => {
+              setConfirming(false);
+            }}
+          >
+            Thôi
+          </Button>
+        </>
+      ) : (
+        <Button
+          variant="danger"
+          disabled={disabled}
+          onClick={() => {
+            setConfirming(true);
+          }}
+        >
+          Xoá video
+        </Button>
+      )}
+      {remove.error && <ErrorText>{errorMessage(remove.error)}</ErrorText>}
     </div>
   );
 }
@@ -200,9 +252,9 @@ function MusicField({ project }: { project: Project }) {
   const error = set.error ?? remove.error;
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-[13px] text-dim">Nhạc nền</span>
+      <span className="text-[12.5px] font-medium text-dim">Nhạc nền</span>
       <div className="flex items-center gap-2">
-        <label className="inline-flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md border border-line px-2.5 text-[13px] focus-within:border-dim hover:border-dim">
+        <label className="inline-flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded border border-line bg-well px-2.5 text-[13px] focus-within:border-dim hover:border-edge">
           <Music size={14} className="shrink-0 text-faint" aria-hidden />
           <span className="truncate">
             {set.isPending ? 'Đang chép…' : (project.music?.name ?? 'Chọn file nhạc (mp3, m4a, wav…)')}
